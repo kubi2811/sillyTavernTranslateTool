@@ -14,6 +14,7 @@ import { Modal } from './components/ui/Modal';
 import { Download, Upload, Settings, BookOpen, MessageSquare, Edit, Languages, HelpCircle, Zap } from 'lucide-react';
 import { getOptimizedEntrySettings } from './utils/optimize';
 import { optimizeEntireLorebook } from './services/openai';
+import { DEFAULT_MASTER_INSTRUCTION } from './constants/masterInstruction';
 
 const DEFAULT_SETTINGS: OpenAISettings = {
   baseUrl: 'https://goldenglow.webn.cc/',
@@ -34,6 +35,8 @@ const DEFAULT_SETTINGS: OpenAISettings = {
   secondaryModel: 'gemini-3-flash',
   primaryRpm: 5,
   secondaryRpm: 10,
+  // "Hướng dẫn tổng" mặc định = nội dung file Cấu hình Worldbook.txt (gộp 2 tab cũ thành 1 text bự).
+  masterInstruction: DEFAULT_MASTER_INSTRUCTION,
 };
 
 const DEFAULT_LOREBOOK: Lorebook = {
@@ -50,6 +53,10 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('sillyLore_settings');
     const parsed = saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
     const merged = { ...DEFAULT_SETTINGS, ...parsed };
+    // Migration: bản lưu cũ chưa có "Hướng dẫn tổng" → nạp nội dung mặc định.
+    if (!merged.masterInstruction || !merged.masterInstruction.trim()) {
+      merged.masterInstruction = DEFAULT_MASTER_INSTRUCTION;
+    }
     if (!merged.aiPrompts || merged.aiPrompts.length === 0) {
       merged.aiPrompts = [
         {

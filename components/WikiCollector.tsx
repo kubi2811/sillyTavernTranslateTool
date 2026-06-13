@@ -760,6 +760,20 @@ export const WikiCollector: React.FC<WikiCollectorProps> = ({
     const finalFailed = updatedTasks.filter(t => t.status === 'failed').length;
     console.log(`[Wiki Collector] KẾT QUẢ CUỐI CÙNG: ${finalSuccess}/${pass1Total} thành công, ${finalFailed} thất bại.`);
 
+    // ─── SỬA SỐ ĐẾM TRANG TRÊN TITLE ───
+    // Title được tạo lúc phân tích chỉ tính số URL nhập tay (vd 15 → "+14 trang").
+    // Nhưng số trang THỰC SỰ gom được (1 trang chính + mọi trang con đã crawl)
+    // lớn hơn nhiều (vd 143). Cập nhật lại để khớp con số "Nạp dữ liệu (143 trang)".
+    const totalHarvested = finalSuccess + 1; // +1 = trang chính đã gộp
+    setMainPage(prev => {
+      if (!prev) return prev;
+      const baseTitle = prev.title.replace(/\s*\(\+[^)]*\)\s*$/, '');
+      const newTitle = totalHarvested > 1
+        ? `${baseTitle} (+ ${totalHarvested - 1} trang bối cảnh khác)`
+        : baseTitle;
+      return { ...prev, title: newTitle };
+    });
+
     // Accumulate all contents properly in order
     for (const task of updatedTasks) {
       if (task.status === 'success' && task.data) {

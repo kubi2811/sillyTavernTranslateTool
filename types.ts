@@ -75,6 +75,7 @@ export interface OpenAISettings {
   aiPipelineMemory?: string; // Tóm tắt thâm sâu quy trình đã nạp của Tawa
   aiPrompts?: AIPromptBlock[]; // AI Prompt Management Blocks
   activePromptId?: string; // Currently active system prompt block ID
+  masterInstruction?: string; // "Hướng dẫn tổng" — 1 text bự, chỉ dẫn CHUNG áp dụng cho mọi bước pipeline (gộp từ 2 tab cũ)
 }
 
 export interface WorldbuildingStep {

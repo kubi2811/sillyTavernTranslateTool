@@ -4,6 +4,7 @@ import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 import { OpenAISettings, AIModel, WorldbuildingStep, AIPromptBlock } from '../types';
 import { fetchModels, worldbuildingChat, testAIPrompts } from '../services/openai';
+import { DEFAULT_MASTER_INSTRUCTION } from '../constants/masterInstruction';
 import { RefreshCw, Save, Server, Sliders, Flame, Ruler, Search, Plus, Trash2, List, Settings, HelpCircle, Sparkles } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -75,14 +76,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSave,
   onAnalyzePipeline,
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'pipeline' | 'prompts'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'guide'>('general');
   const [formData, setFormData] = useState<OpenAISettings>(() => {
     const s = { ...settings };
+    // 5 bước vẫn chạy NGẦM (đảm bảo Zero Omission) dù không còn UI sửa riêng từng bước.
     if (!s.steps || s.steps.length === 0) {
       s.steps = JSON.parse(JSON.stringify(DEFAULT_WORLDBUILDING_STEPS));
     }
     if (!s.aiPrompts || s.aiPrompts.length === 0) {
       s.aiPrompts = JSON.parse(JSON.stringify(DEFAULT_AI_PROMPTS));
+    }
+    // "Hướng dẫn tổng" — gộp 2 tab cũ thành 1 text bự, mặc định = Cấu hình Worldbook.txt.
+    if (!s.masterInstruction || !s.masterInstruction.trim()) {
+      s.masterInstruction = DEFAULT_MASTER_INSTRUCTION;
     }
     return s;
   });
@@ -105,23 +111,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setIsAnalyzing(true);
     setAnalysisStatus('Tawa đang đọc & suy ngẫm các bước bối cảnh...');
     
-    const steps = (formData.steps || []).filter(s => s.enabled);
-    if (steps.length === 0) {
-      setAnalysisStatus('Thất bại: Vui lòng kích hoạt ít nhất 1 bước!');
+    const master = (formData.masterInstruction || '').trim();
+    if (!master) {
+      setAnalysisStatus('Thất bại: "Hướng dẫn tổng" đang trống!');
       setIsAnalyzing(false);
       return;
     }
 
     const prompt = `[HỆ THỐNG - CHỈ LỆNH THẤU HIỂU ĐỘC LẬP]
-Chủ nhân vừa cập nhật hệ thống Quy trình Sinh thế giới đặc sắc bao gồm ${steps.length} bước dưới đây.
+Chủ nhân vừa cập nhật "HƯỚNG DẪN TỔNG" — bộ chỉ dẫn chung sẽ áp dụng cho mọi bước sinh thế giới.
 Nhiệm vụ của con:
-1. Đọc và phân giải logic giữa các bước để hấp thụ 100% bối cảnh hoạt động.
-2. Viết một bản TÓM TẮT LÀM RÕ LỘ TRÌNH VÀ TÂM LÝ HOẠT ĐỘNG, CHỈ RA CỦA CON DÀNH CHO CHỦ NHÂN (khoảng 3-5 câu). Dùng giọng điệu hiếu kính, baka nhí nhảnh dễ thương ("baka~ 🌸").
-3. Chỉ trả về trường "message" chứa bản tóm tắt thấu hiểu sâu sắc này của con để đưa vào bộ nhớ cốt lõi. "actions" là [].
+1. Đọc & phân giải toàn bộ hướng dẫn dưới đây để hấp thụ 100% nguyên tắc hoạt động.
+2. Viết một bản TÓM TẮT LÀM RÕ LỘ TRÌNH VÀ TÂM LÝ HOẠT ĐỘNG của con dành cho chủ nhân (khoảng 3-5 câu). Dùng giọng điệu hiếu kính, baka nhí nhảnh dễ thương ("baka~ 🌸").
+3. Chỉ trả về trường "message" chứa bản tóm tắt thấu hiểu sâu sắc này để đưa vào bộ nhớ cốt lõi. "actions" là [].
 
-QUY TRÌNH BAO GỒM:
-${steps.map((s, idx) => `Bước ${idx + 1}: ${s.name}
-- Chỉ thị: ${s.prompt}`).join('\n\n')}`;
+HƯỚNG DẪN TỔNG:
+${master}`;
 
     try {
       const response = await worldbuildingChat(
@@ -268,34 +273,14 @@ ${steps.map((s, idx) => `Bước ${idx + 1}: ${s.name}
             <Settings size={14} /> Thống số kết nối & AI
           </button>
           <button
-            onClick={() => setActiveTab('pipeline')}
+            onClick={() => setActiveTab('guide')}
             className={`flex items-center gap-2 px-4 py-2.5 border-b-2 font-mono text-xs uppercase tracking-wider font-semibold transition-all relative ${
-              activeTab === 'pipeline'
+              activeTab === 'guide'
                 ? 'border-indigo-500 text-slate-100 bg-slate-800/20'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <List size={14} /> Các bước hướng dẫn AI
-            {formData.steps && formData.steps.filter(s => s.enabled).length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] bg-indigo-600 text-indigo-100 border border-indigo-400/35">
-                {formData.steps.filter(s => s.enabled).length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('prompts')}
-            className={`flex items-center gap-2 px-4 py-2.5 border-b-2 font-mono text-xs uppercase tracking-wider font-semibold transition-all relative ${
-              activeTab === 'prompts'
-                ? 'border-indigo-500 text-slate-100 bg-slate-800/20'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Sparkles size={14} /> Quản lý Prompt AI
-            {formData.aiPrompts && formData.aiPrompts.length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] bg-indigo-600 text-indigo-100 border border-indigo-400/35">
-                {formData.aiPrompts.length}
-              </span>
-            )}
+            <Sparkles size={14} /> Hướng dẫn tổng
           </button>
         </div>
 
@@ -612,33 +597,33 @@ ${steps.map((s, idx) => `Bước ${idx + 1}: ${s.name}
           </div>
         )}
 
-        {activeTab === 'pipeline' && (
+        {activeTab === 'guide' && (
           <div className="space-y-4 animate-in fade-in duration-200">
-            <div className="bg-slate-900/40 p-3 rounded-lg border border-slate-700/50 text-xs text-slate-305 leading-relaxed space-y-1.5">
+            <div className="bg-slate-900/40 p-3 rounded-lg border border-slate-700/50 text-xs text-slate-300 leading-relaxed space-y-1.5">
               <span className="font-bold text-indigo-400 flex items-center gap-1.5 font-mono uppercase tracking-wide">
-                <Sliders size={13} strokeWidth={2.5} />
-                Cơ chế quy trình sinh thế giới (Pipeline Steps)
+                <Sparkles size={13} strokeWidth={2.5} />
+                Hướng dẫn tổng (1 text bự cho mọi bước)
               </span>
               <p>
-                Tại đây con có thể thiết lập các bước hướng dẫn cụ thể mà AI sẽ thực thi tuần tự khi quét tài liệu thu thập từ Bản Đồ Tri Thức Wiki.
+                Đây là bộ chỉ dẫn CHUNG mà Tawa luôn áp dụng khi mổ xẻ tài liệu Wiki. 5 bước quét tuần tự (chống bỏ sót 100%) vẫn chạy ngầm, tất cả đều bám theo hướng dẫn này.
               </p>
               <p className="text-[11px] text-slate-400 font-sans italic">
-                Ví dụ: Bước 1 tìm thế giới quan, Bước 2 thiết lập gia tộc, Bước 3 tạo nhân vật. Giúp bảo toàn 100% nội dung không hề bị bỏ sót hay pha loãng.
+                Mặc định là nội dung "Cấu hình Worldbook". Con cứ sửa thoải mái — nội dung ở đây sẽ được nhét vào đầu mỗi lượt sinh entry.
               </p>
             </div>
 
-            {/* Transmit pipeline to AI button */}
+            {/* Nút nạp hướng dẫn cho AI đọc hiểu */}
             <div className="bg-gradient-to-r from-indigo-950/40 to-slate-950/40 p-4 rounded-xl border border-indigo-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="space-y-1 max-w-md">
                 <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5 font-sans">
                   <Sparkles size={13} className="text-indigo-400" />
-                  Nạp quy trình hướng dẫn sang cho AI đọc hiểu
+                  Gửi "Hướng dẫn tổng" cho AI đọc hiểu
                 </span>
                 <span className="text-[10.5px] text-slate-400 block leading-relaxed font-sans">
-                  Gửi toàn bộ danh sách các bước bối cảnh phía dưới cho Tawa. AI sẽ lập tức phân tích, tóm tắt lộ trình và chuẩn bị tâm lý để tự động ghi nhớ, tránh lặp lại bối cảnh cũ!
+                  Tawa sẽ đọc & tóm tắt lộ trình, chuẩn bị tâm lý để ghi nhớ, tránh lặp lại bối cảnh cũ!
                 </span>
               </div>
-              <Button 
+              <Button
                 variant="primary"
                 onClick={handleAnalyzePipelineDeeply}
                 disabled={isAnalyzing}
@@ -649,7 +634,6 @@ ${steps.map((s, idx) => `Bước ${idx + 1}: ${s.name}
               </Button>
             </div>
 
-            {/* Display status or current AI Pipeline Memory */}
             {analysisStatus && (
               <div className="text-[11px] font-mono p-2.5 rounded-lg bg-indigo-950/25 border border-indigo-500/20 text-indigo-300">
                 ⚡ {analysisStatus}
@@ -678,218 +662,34 @@ ${steps.map((s, idx) => `Bước ${idx + 1}: ${s.name}
               </div>
             )}
 
-            {/* Steps list container */}
-            <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1 select-none custom-scrollbar">
-              {(formData.steps || []).map((step, idx) => (
-                <div key={step.id} className="bg-slate-950/60 rounded-xl p-4 border border-slate-800/80 hover:border-slate-700/80 transition-colors space-y-3 relative">
-                  
-                  {/* Step Header */}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 flex-1">
-                      <span className="font-mono text-xs text-indigo-400 font-bold bg-indigo-950/40 border border-indigo-500/20 px-2 py-0.5 rounded-md shrink-0">
-                        #{idx + 1}
-                      </span>
-                      <input 
-                        type="text"
-                        className="bg-transparent border-b border-dashed border-slate-700 focus:border-indigo-500 focus:outline-none text-xs font-bold text-slate-100 font-mono w-full px-1 py-0.5"
-                        value={step.name}
-                        onChange={(e) => handleUpdateStep(step.id, { name: e.target.value })}
-                        placeholder="Tên bước hướng dẫn..."
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-2.5">
-                      {/* Step Enabled Checker */}
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input 
-                          type="checkbox"
-                          className="rounded border-slate-700 bg-slate-900 text-indigo-500 focus:ring-0 w-3.5 h-3.5"
-                          checked={step.enabled}
-                          onChange={(e) => handleUpdateStep(step.id, { enabled: e.target.checked })}
-                        />
-                        <span className="text-[10px] uppercase font-mono tracking-wider font-semibold text-slate-400 select-none">
-                          Kích hoạt
-                        </span>
-                      </label>
-
-                      {/* Delete Step Button */}
-                      <button 
-                        onClick={() => handleRemoveStep(step.id)}
-                        className="text-slate-500 hover:text-red-400 transition-colors p-1"
-                        title="Xóa bước này"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Step prompt input */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <label className="block text-[10px] font-mono tracking-wider font-bold text-slate-400 uppercase">
-                        Prompt hướng dẫn AI trong bước này:
-                      </label>
-                      
-                      {/* Apply Template Select dropdown */}
-                      {formData.aiPrompts && formData.aiPrompts.length > 0 && (
-                        <select
-                          className="bg-slate-900 border border-slate-700 text-slate-300 text-[10px] rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer font-sans"
-                          value=""
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val) {
-                              const selected = formData.aiPrompts?.find(p => p.id === val);
-                              if (selected) {
-                                handleUpdateStep(step.id, { prompt: selected.content });
-                              }
-                            }
-                          }}
-                        >
-                          <option value="" disabled>-- Nạp mẫu Prompt --</option>
-                          {formData.aiPrompts.map(p => (
-                            <option key={p.id} value={p.id}>{p.title}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                    <textarea
-                      className="w-full bg-slate-900/80 border border-slate-800 text-slate-200 placeholder-slate-600 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-h-[60px]"
-                      rows={3}
-                      value={step.prompt}
-                      onChange={(e) => handleUpdateStep(step.id, { prompt: e.target.value })}
-                      placeholder="Gắn prompt chỉ dẫn AI trích xuất gì, tạo lorebook entry gì thế nào..."
-                    />
-                  </div>
-                </div>
-              ))}
-
-              {(formData.steps || []).length === 0 && (
-                <div className="text-center py-8 rounded-xl bg-slate-950/20 border border-slate-800/50">
-                  <List size={24} className="text-slate-600 mx-auto mb-2" />
-                  <p className="text-xs text-slate-400">Không có bước hướng dẫn tự tùy biến nào.</p>
-                  <p className="text-[10px] text-slate-500 mt-1">Con hãy bấm nút "Thêm bước mới" bên dưới để thiết kế quy trình!</p>
-                </div>
-              )}
-            </div>
-
-            {/* Action buttons */}
-            <div className="pt-2 flex justify-start">
-              <Button 
-                variant="secondary"
-                onClick={handleAddStep}
-                icon={<Plus size={14} />}
-                className="text-xs font-semibold py-1.5 px-3 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border-none rounded-lg"
-              >
-                Thêm bước mới
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'prompts' && (
-          <div className="space-y-4 animate-in fade-in duration-200 font-sans">
-            <div className="bg-slate-900/40 p-3 rounded-lg border border-slate-700/50 text-xs text-slate-300 leading-relaxed space-y-1.5">
-              <span className="font-bold text-indigo-400 flex items-center gap-1.5 font-mono uppercase tracking-wide">
-                <Sparkles size={13} strokeWidth={2.5} />
-                Quản lý Prompt AI (AI Prompt Templates)
-              </span>
-              <p>
-                Tại đây con có thể quản lý các mẫu chỉ dẫn hệ thống của AI. Việc phân tách các khối prompt giúp tránh gây nhiễu loạn thông tin khi gửi cho LLM.
-              </p>
-            </div>
-
-            {/* Active system prompt selector */}
-            <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-800/80 space-y-3">
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider font-mono">
-                System Instruction Đang Kích Hoạt
-              </label>
-              <div className="relative font-sans">
-                <select
-                  value={formData.activePromptId || ''}
-                  onChange={(e) => setFormData({ ...formData, activePromptId: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none font-sans"
+            {/* Master instruction (text bự) */}
+            <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-800/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                  <List size={13} /> Nội dung hướng dẫn tổng
+                </label>
+                <button
+                  onClick={() => setFormData(prev => ({ ...prev, masterInstruction: DEFAULT_MASTER_INSTRUCTION }))}
+                  className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors py-0.5 px-1.5 bg-indigo-950/20 border border-indigo-500/20 rounded font-sans flex items-center gap-1"
+                  title="Khôi phục về nội dung Cấu hình Worldbook mặc định"
                 >
-                  <option value="">-- Mặc định (Tự động nhận diện prompt theo bối cảnh hoặc dùng Persona Tawa gốc) --</option>
-                  {(formData.aiPrompts || []).map(p => (
-                    <option key={p.id} value={p.id}>{p.title}</option>
-                  ))}
-                </select>
-                <div className="absolute right-3 top-3 pointer-events-none text-slate-500">
-                  <Sparkles size={14} />
-                </div>
+                  <RefreshCw size={11} /> Khôi phục mặc định
+                </button>
               </div>
-              <p className="text-[10.5px] text-slate-400 leading-relaxed">
-                Khi con chọn một prompt cụ thể, Tawa sẽ luôn sử dụng nội dung prompt đó làm System Instruction chính. Khi để <b>Mặc định</b>, hệ thống sẽ tự động gọi đúng prompt theo bối cảnh chạy (Ví dụ: tự động nạp "PROMPT 3: NHÂN VẬT" khi chạy bước Quét Nhân Vật).
+              <textarea
+                className="w-full bg-slate-900/85 border border-slate-800 text-slate-200 placeholder-slate-600 rounded-lg px-3 py-2.5 text-xs font-mono leading-relaxed focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-h-[360px] custom-scrollbar"
+                value={formData.masterInstruction || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, masterInstruction: e.target.value }))}
+                placeholder="Dán toàn bộ hướng dẫn tổng (quy tắc cấu hình worldbook, cách trích xuất, định dạng entry...) vào đây..."
+              />
+              <p className="text-[10px] text-slate-500 font-sans">
+                {(formData.masterInstruction || '').length.toLocaleString()} ký tự
               </p>
             </div>
 
-            {/* Prompts list container */}
-            <div className="space-y-4 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
-              {(formData.aiPrompts || []).map((prompt, idx) => (
-                <div key={prompt.id} className="bg-slate-950/60 rounded-xl p-4 border border-slate-800/80 hover:border-slate-700/80 transition-colors space-y-3 relative">
-                  
-                  {/* Prompt Header */}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 flex-1">
-                      <span className="font-mono text-xs text-indigo-400 font-bold bg-indigo-950/40 border border-indigo-500/20 px-2 py-0.5 rounded-md shrink-0">
-                        #{idx + 1}
-                      </span>
-                      <input 
-                        type="text"
-                        className="bg-transparent border-b border-dashed border-slate-700 focus:border-indigo-500 focus:outline-none text-xs font-bold text-slate-100 font-mono w-full px-1 py-0.5"
-                        value={prompt.title}
-                        onChange={(e) => handleUpdatePrompt(prompt.id, { title: e.target.value })}
-                        placeholder="Tiêu đề Prompt..."
-                      />
-                    </div>
-
-                    {/* Delete Prompt Button */}
-                    <button 
-                      onClick={() => handleRemovePrompt(prompt.id)}
-                      className="text-slate-500 hover:text-red-400 transition-colors p-1"
-                      title="Xóa khối prompt này"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-
-                  {/* Prompt content input */}
-                  <div>
-                    <label className="block text-[10px] font-mono tracking-wider font-bold text-slate-400 uppercase mb-1">
-                      Nội dung Prompt (YAML/Text):
-                    </label>
-                    <textarea
-                      className="w-full bg-slate-900/85 border border-slate-800 text-slate-200 placeholder-slate-600 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-h-[100px]"
-                      rows={5}
-                      value={prompt.content}
-                      onChange={(e) => handleUpdatePrompt(prompt.id, { content: e.target.value })}
-                      placeholder="Dán toàn bộ nội dung prompt vào đây..."
-                    />
-                  </div>
-                </div>
-              ))}
-
-              {(formData.aiPrompts || []).length === 0 && (
-                <div className="text-center py-8 rounded-xl bg-slate-950/20 border border-slate-800/50">
-                  <Sparkles size={24} className="text-slate-600 mx-auto mb-2" />
-                  <p className="text-xs text-slate-400">Không có khối prompt nào được lưu.</p>
-                  <p className="text-[10px] text-slate-500 mt-1">Con hãy bấm nút "Thêm khối prompt" bên dưới để tạo mới!</p>
-                </div>
-              )}
-            </div>
-
-            {/* Action buttons */}
-            <div className="pt-2 flex justify-between items-center gap-3">
-              <Button 
-                variant="secondary"
-                onClick={handleAddPrompt}
-                icon={<Plus size={14} />}
-                className="text-xs font-semibold py-1.5 px-3 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border-none rounded-lg"
-              >
-                Thêm khối prompt
-              </Button>
-              
-              <Button 
+            {/* Action button */}
+            <div className="pt-2 flex justify-end items-center gap-3">
+              <Button
                 variant="primary"
                 onClick={handleSaveAndInitializeAI}
                 isLoading={isInitializingAI}

@@ -179,13 +179,17 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
 
         setPipelineLogs(prev => [...prev, `[Hệ thống] Bước ${i + 1}: ${chunks.length} phân mảnh • chạy song song theo RPM=${primaryRpm} (model chính: ${primaryModel})`]);
 
+        const masterGuide = (settings.masterInstruction || '').trim();
         const buildChunkPrompt = (chunk: string, ci: number) => `[Quy trình tự động - ${currentStep.name} • Phân mảnh ${ci + 1}/${chunks.length}]
 
 [CHỐNG SKIP] Không được bỏ qua. Trích xuất đầy đủ, KHÔNG bịa thông tin ngoài dữ liệu.
 
 [LOẠI TRỪ DẬP TRÙNG] Các bước đã xong: [${prevStepsMeta || 'chưa có'}]. KHÔNG tạo lại mục đã tồn tại. Tên entry đã có: ${priorNames || 'chưa có'}.
-
-Hướng dẫn chỉ đạo của bước này:
+${masterGuide ? `
+=== HƯỚNG DẪN TỔNG (quy tắc CHUNG, bám sát cho mọi bước) ===
+${masterGuide}
+` : ''}
+Trọng tâm bước này:
 ${currentStep.prompt}
 
 Tên tài liệu Wiki: ${attachedDoc.name}
@@ -213,9 +217,12 @@ YÊU CẦU:
               primaryModel
             );
             const acts = (resp?.actions || []).filter((a: any) => a && a.type === 'create' && a.data) as WorldbuildingAction[];
-            return { actions: acts, failed: false };
+            return { actions: acts, failed: false, error: '' };
           } catch (e: any) {
-            return { actions: [] as WorldbuildingAction[], failed: true };
+            // Giữ lại lý do lỗi thật để báo cho người dùng (không nuốt im lặng)
+            const msg = String(e?.message || e || 'Lỗi không xác định');
+            console.error(`[Pipeline] Bước ${i + 1} • mảnh ${ci + 1} lỗi API:`, e);
+            return { actions: [] as WorldbuildingAction[], failed: true, error: msg };
           }
         });
 
@@ -225,9 +232,18 @@ YÊU CẦU:
         // Gộp TUẦN TỰ (tránh race) + chống trùng theo comment, rồi áp dụng 1 lần.
         const mergedActions: WorldbuildingAction[] = [];
         let failedChunks = 0;
+        const errorSamples: string[] = [];
         for (const r of settledChunks) {
-          if (r.status !== 'fulfilled' || !r.value) { failedChunks++; continue; }
-          if (r.value.failed) failedChunks++;
+          if (r.status !== 'fulfilled' || !r.value) {
+            failedChunks++;
+            const reason = r.status === 'rejected' ? String((r as any).reason?.message || (r as any).reason) : 'Tác vụ không trả kết quả';
+            if (reason) errorSamples.push(reason);
+            continue;
+          }
+          if (r.value.failed) {
+            failedChunks++;
+            if (r.value.error) errorSamples.push(r.value.error);
+          }
           for (const act of r.value.actions) {
             const name = act.data?.comment?.trim().toLowerCase();
             if (name) {
@@ -254,7 +270,10 @@ YÊU CẦU:
         }
 
         if (failedChunks > 0) {
-          setPipelineLogs(prev => [...prev, `[⚠️] Bước ${i + 1}: ${failedChunks}/${chunks.length} phân mảnh lỗi API (đã bỏ qua, dữ liệu còn lại vẫn giữ).`]);
+          // Gom các lý do lỗi khác nhau (tối đa 3 mẫu) để người dùng biết NGUYÊN NHÂN thật
+          const distinctErrors = Array.from(new Set(errorSamples)).slice(0, 3);
+          const reasonStr = distinctErrors.length > 0 ? ` — Lý do: ${distinctErrors.join(' | ')}` : '';
+          setPipelineLogs(prev => [...prev, `[⚠️ LỖI API] Bước ${i + 1}: ${failedChunks}/${chunks.length} phân mảnh lỗi (đã bỏ qua, dữ liệu còn lại vẫn giữ).${reasonStr}`]);
         }
 
         const cleanStepName = currentStep.name.replace(/^Bước\s+\d+:\s*/i, '');
