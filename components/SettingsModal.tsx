@@ -39,7 +39,7 @@ const DEFAULT_WORLDBUILDING_STEPS: WorldbuildingStep[] = [
   {
     id: 'step_4',
     name: 'Bước 4: Hồ sơ nhân vật chi tiết & Chống bỏ sót mổ xẻ 100%',
-    prompt: 'Đồng bộ hóa 100% hồ sơ tất cả nhân vật và sinh vật được xuất hiện trong wiki, bao gồm ngoại hình chi tiết, tính cách, chỉ số vật lý hay kỹ năng chiến đấu. Hãy rà soát lại toàn bộ Wiki đã đọc để đảm bảo mổ xẻ kĩ lượng 100% thông tin không bị sót bất kì yếu tố nào trước khi báo cáo hoàn thành.',
+    prompt: 'Đồng bộ hóa 100% hồ sơ tất cả nhân vật và sinh vật được xuất hiện trong wiki, bao gồm ngoại hình chi tiết, tính cách, chỉ số vật lý hay kỹ năng chiến đấu. Hãy rà soát lại toàn bộ Wiki đã đọc để đảm bảo mổ xẻ kĩ lưỡng 100% thông tin không bị sót bất kì yếu tố nào trước khi báo cáo hoàn thành.',
     enabled: true
   }
 ];

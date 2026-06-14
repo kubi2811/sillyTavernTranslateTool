@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Globe, HelpCircle, ArrowRight, Loader2, CheckCircle2, ChevronRight, RefreshCw, X, Sparkles, BookOpen, Layers, Network, ChevronDown, ChevronUp, Folder, FolderOpen } from 'lucide-react';
-import { fetchWikiPage, parseWikiUrl, WikiPageData, WikiMenuItem, generateAutoCategorizedTree, validateTitlesExist, fetchAllWikiPages, META_FILTERS, filterOutMeta } from '../utils/wikiCrawler';
+import { fetchWikiPage, parseWikiUrl, WikiPageData, WikiMenuItem, validateTitlesExist, fetchAllWikiPages, fetchWikiTitleCategoryBuckets, META_FILTERS, filterOutMeta } from '../utils/wikiCrawler';
 import { categorizeTitlesAI, WikiBucketKey } from '../services/openai';
+import { heuristicBucket, reconcileSubpages } from '../utils/titleBucket';
 import { OpenAISettings } from '../types';
 import { Button } from './ui/Button';
 
@@ -24,9 +25,25 @@ function buildTreeFromCategories(
   const buckets: Record<WikiBucketKey, WikiMenuItem[]> = {
     worldview: [], systems: [], characters: [], locations: [], timeline: []
   };
+  const repairedMapping: Record<string, WikiBucketKey> = {};
+
+  links.forEach(linkText => {
+    const aiBucket = mapping[linkText];
+    const fallbackBucket = heuristicBucket(linkText);
+    repairedMapping[linkText] = BUCKET_ORDER.includes(aiBucket)
+      ? aiBucket
+      : fallbackBucket;
+
+    if (repairedMapping[linkText] === 'worldview' && fallbackBucket === 'characters') {
+      repairedMapping[linkText] = 'characters';
+    }
+  });
+
+  const finalMapping = reconcileSubpages(repairedMapping);
+
   links.forEach(linkText => {
     const url = `https://${domain}/wiki/${encodeURIComponent(linkText.replace(/ /g, '_'))}`;
-    const key = mapping[linkText] || 'worldview';
+    const key = finalMapping[linkText] || heuristicBucket(linkText);
     (buckets[key] || buckets.worldview).push({ title: linkText, url, isLink: true });
   });
   return BUCKET_ORDER.map(key => ({
@@ -422,17 +439,24 @@ export const WikiCollector: React.FC<WikiCollectorProps> = ({
       // ─── PHÂN LOẠI 5 NHÓM ───
       // Ưu tiên dùng Model PHỤ (Flash) phân loại theo NGỮ NGHĨA (chính xác cho
       // mọi wiki). Nếu tắt model phụ hoặc lỗi → fallback về keyword (cũ).
+      let categoryMapping: Record<string, WikiBucketKey> = {};
+      try {
+        categoryMapping = await fetchWikiTitleCategoryBuckets(consolidatedLinks, domain);
+      } catch (e) {
+        console.warn('Phân loại bằng category wiki thất bại, bỏ qua:', e);
+      }
+
       let mergedMenuTree: WikiMenuItem[];
       if (settings?.enableSecondaryModel && settings?.apiKey && consolidatedLinks.length > 0) {
         try {
           const mapping = await categorizeTitlesAI(consolidatedLinks, settings);
-          mergedMenuTree = buildTreeFromCategories(consolidatedLinks, mapping, domain);
+          mergedMenuTree = buildTreeFromCategories(consolidatedLinks, { ...mapping, ...categoryMapping }, domain);
         } catch (e) {
           console.warn('Phân loại bằng AI thất bại, dùng keyword:', e);
-          mergedMenuTree = generateAutoCategorizedTree(consolidatedLinks, domain);
+          mergedMenuTree = buildTreeFromCategories(consolidatedLinks, categoryMapping, domain);
         }
       } else {
-        mergedMenuTree = generateAutoCategorizedTree(consolidatedLinks, domain);
+        mergedMenuTree = buildTreeFromCategories(consolidatedLinks, categoryMapping, domain);
       }
 
       const mergedPage: WikiPageData = {
@@ -945,7 +969,7 @@ export const WikiCollector: React.FC<WikiCollectorProps> = ({
                   {isCrawling ? (
                     <>
                       <Loader2 size={13} className="animate-spin" />
-                      Phân tích thiết cấu đa tầng...
+                      Phân tích cấu trúc đa tầng...
                     </>
                   ) : (
                     <>

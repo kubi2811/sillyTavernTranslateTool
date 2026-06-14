@@ -4,6 +4,7 @@ import { CHARACTER_TEMPLATE, WORLD_TEMPLATE, SILLY_TAVERN_TECHNICAL_MANUAL } fro
 import { jsonrepair } from 'jsonrepair';
 import { runRateLimited } from '../utils/rateLimiter';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout';
+import { heuristicBucket, reconcileSubpages } from '../utils/titleBucket';
 
 export const fetchModels = async (baseUrl: string, apiKey: string): Promise<AIModel[]> => {
   let url = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
@@ -1570,7 +1571,7 @@ Bạn PHẢI trả về một ĐỐI TƯỢNG JSON duy nhất, có chứa mảng
       allOptimizedResults.push(...mapped);
 
     } catch (error) {
-      console.warn(`Lỗi phân loại chuyên sâu AI ở giải đoạn batch ${batchIndex}, kích hoạt thuật toán Phân tích Phục hồi Tawa tự động:`, error);
+      console.warn(`Lỗi phân loại chuyên sâu AI ở giai đoạn batch ${batchIndex}, kích hoạt thuật toán Phân tích Phục hồi Tawa tự động:`, error);
       
       const fallbackMapped = currentBatch.map(entry => runTawaHeuristicClassification(entry));
       allOptimizedResults.push(...fallbackMapped);
@@ -1648,11 +1649,17 @@ const categorizeTitlesBatch = async (
   url = url.includes('/v1/') ? `${url}chat/completions` : `${url}v1/chat/completions`;
 
   const system = `Bạn là bộ phân loại tiêu đề trang Wiki. Với MỖI tiêu đề, gán đúng 1 nhóm:
-- "characters": người, nhân vật, thực thể sống, thần, NPC (vd tên riêng người).
-- "locations": địa danh, quốc gia, thành phố, vùng đất, công trình, chiều không gian.
-- "systems": hệ thống sức mạnh, ma thuật, kỹ năng, cấp bậc, kinh tế, quy tắc, cơ chế.
+- "characters": người/nhân vật/thực thể sống/thần/NPC. PHẦN LỚN tiêu đề là TÊN RIÊNG CỦA NGƯỜI (vd "Sirris Azenthem", "Muden Nidelk", "Han Isratte", "Jenna Shirai") → đây là characters.
+- "locations": địa danh, quốc gia, thành phố, vùng đất, tầng tháp, công trình, chiều không gian.
+- "systems": hệ thống sức mạnh, ma thuật, kỹ năng, cấp bậc, gacha, xếp hạng sao, kinh tế, quy tắc, cơ chế.
 - "timeline": sự kiện, mốc lịch sử, chiến tranh, niên đại, dòng thời gian.
-- "worldview": thuật ngữ, khái niệm, chủng tộc, phe phái, vật phẩm, lore tổng quát KHÔNG thuộc 4 nhóm trên.
+- "worldview": thuật ngữ/khái niệm/chủng tộc/phe phái/vật phẩm/lore tổng quát KHÔNG thuộc 4 nhóm trên.
+
+QUY TẮC QUAN TRỌNG:
+1. Tiêu đề dạng "X/Relationships", "X/Gallery", "X/Chronology", "X/Artifacts", "X/Abilities"... là TRANG CON của X → gán CÙNG nhóm với X (X là người thì cả hai đều "characters").
+2. Tên riêng gồm 2+ từ viết hoa mà không phải địa danh → "characters". ĐỪNG đổ tên người vào "worldview".
+3. BẮT BUỘC trả về MỌI tiêu đề trong danh sách input, dùng key Y NGUYÊN (copy chính xác từng ký tự, kể cả dấu "/", "!", ngoặc).
+
 CHỈ trả về JSON object thuần: khóa = tiêu đề y nguyên, giá trị = 1 trong [characters, locations, systems, timeline, worldview]. Không giải thích.`;
 
   const payload: any = {
@@ -1714,15 +1721,47 @@ export const categorizeTitlesAI = async (
   );
 
   const merged: Record<string, WikiBucketKey> = {};
-  settled.forEach((res, idx) => {
-    if (res.status === 'fulfilled') {
-      Object.assign(merged, res.value);
-    } else {
-      // Lô lỗi → để mặc định worldview cho các tiêu đề trong lô
-      batches[idx].forEach((t) => { if (!(t in merged)) merged[t] = 'worldview'; });
-    }
+  settled.forEach((res) => {
+    if (res.status === 'fulfilled') Object.assign(merged, res.value);
   });
-  // Đảm bảo mọi title đều có nhóm
-  titles.forEach((t) => { if (!(t in merged)) merged[t] = 'worldview'; });
-  return merged;
+
+  // ─── CỨU tiêu đề bị model bỏ sót / lô lỗi (KHÔNG đổ hết về 'worldview' nữa) ───
+  // Trước đây mọi tiêu đề thiếu → 'worldview' → nhân vật bị lọt khi quét nhiều link.
+  let missing = titles.filter((t) => !(t in merged));
+  if (missing.length > 0) {
+    // Thử lại 1 lần các tiêu đề còn thiếu (chia lô) trước khi dùng heuristic.
+    try {
+      const retryBatches: string[][] = [];
+      for (let i = 0; i < missing.length; i += BATCH) retryBatches.push(missing.slice(i, i + BATCH));
+      const retried = await runRateLimited(
+        retryBatches.map((b) => () => categorizeTitlesBatch(b, settings, model)),
+        { key: `categorize:${model}`, rpm }
+      );
+      retried.forEach((r) => { if (r.status === 'fulfilled') Object.assign(merged, r.value); });
+    } catch { /* bỏ qua → rơi xuống heuristic */ }
+    missing = titles.filter((t) => !(t in merged));
+  }
+  // Còn thiếu → đoán bằng heuristic (tên người/sub-page → characters), KHÔNG blind worldview.
+  missing.forEach((t) => { merged[t] = heuristicBucket(t); });
+
+  // ─── SỬA SAI rõ ràng: AI để 'worldview' nhưng heuristic CHẮC là nhân vật ───
+  // (tên người 2+ từ / tab trang con nhân vật) → ép 'characters'. Tránh nhân vật
+  // lọt vào THẾ GIỚI QUAN do model phân loại nhầm chứ không phải bỏ sót.
+  for (const t of Object.keys(merged)) {
+    if (merged[t] === 'worldview' && heuristicBucket(t) === 'characters') merged[t] = 'characters';
+  }
+
+  // Gắn TRANG CON theo trang CHA (vd Han Isratte/Artifacts theo Han Isratte) + ép tab nhân vật.
+  const completed: Record<string, WikiBucketKey> = {};
+  for (const t of titles) {
+    const modelBucket = merged[t];
+    const fallbackBucket = heuristicBucket(t);
+    completed[t] = VALID_BUCKETS.includes(modelBucket) ? modelBucket : fallbackBucket;
+
+    if (completed[t] === 'worldview' && fallbackBucket === 'characters') {
+      completed[t] = 'characters';
+    }
+  }
+
+  return reconcileSubpages(completed);
 };

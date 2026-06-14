@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from './fetchWithTimeout';
+import { heuristicBucket, type WikiBucketKey } from './titleBucket';
 
 export interface WikiMenuItem {
   title: string;
@@ -931,6 +932,16 @@ export function generateAutoCategorizedTree(links: string[], domain: string): Wi
   links.forEach(linkText => {
     const url = `https://${domain}/wiki/${encodeURIComponent(linkText.replace(/ /g, '_'))}`;
     const normText = normalize(linkText);
+    const heuristic = heuristicBucket(linkText);
+
+    if (heuristic !== 'worldview') {
+      categories[heuristic].items.push({
+        title: linkText,
+        url,
+        isLink: true
+      });
+      return;
+    }
     
     let matched = false;
     const orderedKeys = ['timeline', 'locations', 'characters', 'systems'];
@@ -958,7 +969,9 @@ export function generateAutoCategorizedTree(links: string[], domain: string): Wi
     }
 
     if (!matched) {
-      categories.worldview.items.push({
+      // Không khớp keyword → ĐOÁN bằng heuristic (tên người / sub-page nhân vật →
+      // characters) thay vì đổ hết về worldview (vốn làm nhân vật bị lọt).
+      categories[heuristic].items.push({
         title: linkText,
         url,
         isLink: true
@@ -1164,6 +1177,77 @@ export async function validateTitlesExist(titles: string[], domain: string): Pro
     }
   }
   return existing;
+}
+
+function bucketFromCategories(categoryTitles: string[]): WikiBucketKey | null {
+  const joined = categoryTitles
+    .map(c => c.replace(/^Category:/i, ''))
+    .join(' ')
+    .toLowerCase();
+
+  if (!joined.trim()) return null;
+
+  if (/\b(characters?|heroes?|enemies?|npc|female|male|alive|deceased)\b/i.test(joined)) {
+    return 'characters';
+  }
+  if (/\b(locations?|places?|kingdoms?|cities|regions?|floors?|lobbies|towers?|infrastructure)\b/i.test(joined)) {
+    return 'locations';
+  }
+  if (/\b(systems?|abilities|skills?|magic|spells?|summons?|mechanics?|classes?|ranks?)\b/i.test(joined)) {
+    return 'systems';
+  }
+  if (/\b(timeline|chronology|histories|history|events?|wars?|battles?)\b/i.test(joined)) {
+    return 'timeline';
+  }
+
+  return null;
+}
+
+export async function fetchWikiTitleCategoryBuckets(
+  titles: string[],
+  domain: string
+): Promise<Record<string, WikiBucketKey>> {
+  const mapping: Record<string, WikiBucketKey> = {};
+  if (!titles.length || !domain) return mapping;
+
+  const apiUrl = `https://${domain}/api.php`;
+  const ci = (s: string) => s.toLowerCase().replace(/_/g, ' ').trim();
+  const inputByCi = new Map<string, string>();
+  titles.forEach(t => inputByCi.set(ci(t), t));
+
+  const BATCH = 50;
+  for (let i = 0; i < titles.length; i += BATCH) {
+    const slice = titles.slice(i, i + BATCH);
+    const joined = slice.map(t => t.replace(/ /g, '_')).join('|');
+    const endpoint = `${apiUrl}?action=query&prop=categories&cllimit=max&redirects=1&titles=${encodeURIComponent(joined)}&format=json&origin=*`;
+
+    try {
+      const data = await fetchWithProxyRotation(endpoint);
+      const q = data?.query;
+      if (!q) continue;
+
+      const normMap = new Map<string, string>();
+      (q.normalized || []).forEach((n: any) => normMap.set(ci(n.to), ci(n.from)));
+      const redirMap = new Map<string, string>();
+      (q.redirects || []).forEach((r: any) => redirMap.set(ci(r.to), ci(r.from)));
+
+      const pages = q.pages || {};
+      for (const key of Object.keys(pages)) {
+        const page = pages[key];
+        if (!page?.title || !Array.isArray(page.categories)) continue;
+
+        const pageCi = ci(page.title);
+        const originalCi = redirMap.get(pageCi) || normMap.get(pageCi) || pageCi;
+        const originalTitle = inputByCi.get(originalCi) || inputByCi.get(pageCi) || page.title;
+        const bucket = bucketFromCategories(page.categories.map((c: any) => c.title || ''));
+        if (bucket) mapping[originalTitle] = bucket;
+      }
+    } catch (e) {
+      // Category hints are optional. Network/API failures fall back to AI/heuristic.
+    }
+  }
+
+  return mapping;
 }
 
 /**
