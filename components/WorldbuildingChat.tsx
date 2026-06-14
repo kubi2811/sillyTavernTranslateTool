@@ -269,7 +269,8 @@ YÊU CẦU:
               undefined,
               settings.minTokens || 4000,
               'evolution',
-              model
+              model,
+              300000 // trần 5 phút + tự hủy nếu stream đứng yên 90s (chống 1 mảnh kẹt treo cả pipeline)
             );
             const acts = (resp?.actions || []).filter((a: any) => a && a.type === 'create' && a.data) as WorldbuildingAction[];
             return { actions: acts, failed: false, error: '' };

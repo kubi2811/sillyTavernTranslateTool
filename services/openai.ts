@@ -550,7 +550,8 @@ export const worldbuildingChat = async (
   onProgress?: (partialContent: string) => void,
   minTokens: number = 2000,
   mode: WorldbuildingMode = 'genesis',
-  modelOverride?: string
+  modelOverride?: string,
+  timeoutMs: number = 0 // >0 = hủy lượt gọi nếu quá hạn cứng HOẶC stream đứng yên quá lâu (chống treo)
 ): Promise<WorldbuildingResponse> => {
   let url = settings.baseUrl.endsWith('/') ? settings.baseUrl : `${settings.baseUrl}/`;
   if (!url.includes('/v1/')) {
@@ -971,6 +972,20 @@ Respond with a VALID JSON object:
 
   let fullContent = "";
 
+  // ─── Chống treo: AbortController + 2 đồng hồ ───
+  // hardTimer = trần cứng tổng (vd 180s). idleTimer = stream đứng yên quá lâu (vd 60s)
+  // → hủy lượt gọi để 1 mảnh kẹt không chặn cả pipeline.
+  const controller = new AbortController();
+  // idle = stream đứng yên bao lâu thì coi là treo (90s). Trần cứng = timeoutMs tổng.
+  const IDLE_MS = timeoutMs > 0 ? Math.min(90000, timeoutMs) : 0;
+  let hardTimer: ReturnType<typeof setTimeout> | null = null;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let timedOut = false;
+  const doAbort = () => { timedOut = true; try { controller.abort(); } catch {} };
+  const clearTimers = () => { if (hardTimer) clearTimeout(hardTimer); if (idleTimer) clearTimeout(idleTimer); hardTimer = idleTimer = null; };
+  const armIdle = () => { if (IDLE_MS > 0) { if (idleTimer) clearTimeout(idleTimer); idleTimer = setTimeout(doAbort, IDLE_MS); } };
+  if (timeoutMs > 0) hardTimer = setTimeout(doAbort, timeoutMs);
+
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -979,6 +994,7 @@ Respond with a VALID JSON object:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -990,8 +1006,10 @@ Respond with a VALID JSON object:
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
+      armIdle(); // bắt đầu canh stream đứng yên
       while (true) {
         const { done, value } = await reader.read();
+        armIdle(); // có dữ liệu (kể cả keep-alive) → reset đồng hồ idle
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -1053,9 +1071,14 @@ Respond with a VALID JSON object:
     
     return parsed;
   } catch (error) {
+    // Timeout / abort → NÉM lại (không nuốt thành rỗng) để pipeline đếm là mảnh lỗi và báo lý do.
+    if (timedOut || (error as any)?.name === 'AbortError') {
+      const sec = timeoutMs > 0 ? Math.round(timeoutMs / 1000) : 0;
+      throw new Error(`Quá thời gian phản hồi (idle ${Math.round((IDLE_MS || 0) / 1000)}s / trần ${sec}s) — đã hủy lượt gọi để không treo pipeline.`);
+    }
     console.error("Lỗi Worldbuilding:", error);
-    const isContinue = fullContent.includes('[STATUS: CONTINUE]') || 
-                       fullContent.includes('"status": "CONTINUE"') || 
+    const isContinue = fullContent.includes('[STATUS: CONTINUE]') ||
+                       fullContent.includes('"status": "CONTINUE"') ||
                        fullContent.includes('"status":"CONTINUE"');
     // If parsing completely fails, return the raw text as a message instead of crashing
     return {
@@ -1064,6 +1087,8 @@ Respond with a VALID JSON object:
       status: isContinue ? 'CONTINUE' : undefined,
       actions: []
     };
+  } finally {
+    clearTimers();
   }
 };
 
