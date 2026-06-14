@@ -34,6 +34,7 @@ const validationStatusIndicator = document.getElementById('validation-status-ind
 const customModelInput = document.getElementById('custom-model');
 const customModelGroup = document.getElementById('custom-model-group');
 const btnImportDefaultRules = document.getElementById('btn-import-default-rules');
+const ruleFileInput = document.getElementById('rule-file-input');
 
 // Sample buttons
 const btnLoadSampleCard = document.getElementById('btn-load-sample-card');
@@ -124,6 +125,14 @@ function cloneDefaultRules() {
   return JSON.parse(JSON.stringify(DEFAULT_GROUP_RULES));
 }
 
+function normalizeRuleText(input) {
+  return String(input || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
+}
+
 function getRuleOrder(rule) {
   return rule.defaultOrder ?? rule.card.order ?? rule.lorebook.order;
 }
@@ -157,11 +166,7 @@ function renderRuleCards() {
   });
 }
 
-function applyDefaultRulePreset(showLog = true) {
-  GROUP_RULES = cloneDefaultRules();
-  localStorage.setItem('st_opt_rule_preset', 'worldbook2');
-  renderRuleCards();
-
+function updateActiveEntriesAfterRuleChange() {
   if (activeFile.entries.length > 0) {
     activeFile.entries.forEach(entry => {
       if (entry.assignedGroup) evaluateEntryStatus(entry);
@@ -169,10 +174,176 @@ function applyDefaultRulePreset(showLog = true) {
     updateDistribution();
     renderEntries();
   }
+}
+
+function saveCurrentRules(sourceName) {
+  localStorage.setItem('st_opt_rule_preset', sourceName);
+  localStorage.setItem('st_opt_rule_source_name', sourceName);
+  localStorage.setItem('st_opt_group_rules', JSON.stringify(GROUP_RULES));
+}
+
+function loadStoredRules() {
+  const savedRules = localStorage.getItem('st_opt_group_rules');
+  if (!savedRules) return;
+
+  try {
+    const parsed = JSON.parse(savedRules);
+    if (parsed && parsed[1] && parsed[5]) {
+      GROUP_RULES = parsed;
+    }
+  } catch {
+    localStorage.removeItem('st_opt_group_rules');
+  }
+}
+
+function splitRuleSections(text) {
+  const matches = [...text.matchAll(/^###\s+(.+)$/gm)];
+  return matches.map((match, index) => {
+    const start = match.index + match[0].length;
+    const end = matches[index + 1]?.index ?? text.length;
+    return {
+      title: match[1].trim(),
+      body: text.slice(start, end)
+    };
+  });
+}
+
+function findRuleSection(sections, keywords) {
+  return sections.find(section => {
+    const normalized = normalizeRuleText(`${section.title}\n${section.body}`);
+    return keywords.every(keyword => normalized.includes(keyword));
+  });
+}
+
+function extractRuleOrder(section, fallbackOrder, group) {
+  if (!section) return fallbackOrder;
+
+  const normalized = normalizeRuleText(section.body);
+  const match = normalized.match(/(?:thu tu|order)\s*:\s*(\d+)(?:\s*[-–]\s*(\d+))?/);
+  if (!match) return fallbackOrder;
+
+  const first = Number(match[1]);
+  const second = match[2] ? Number(match[2]) : null;
+  if (!Number.isFinite(first)) return fallbackOrder;
+  if (!second) return first;
+
+  if (group === 1 && first <= 1 && second >= 3) return 1;
+  if (group === 4 && first <= 50 && second >= 98) return 80;
+  return fallbackOrder;
+}
+
+function extractRuleConstant(section, fallbackConstant) {
+  if (!section) return fallbackConstant;
+  const normalized = normalizeRuleText(section.body);
+
+  if (normalized.includes('den xanh duong') || normalized.includes('thuong truc') || normalized.includes('constant')) {
+    return true;
+  }
+  if (normalized.includes('den xanh la') || normalized.includes('tu khoa') || normalized.includes('selective')) {
+    return false;
+  }
+  return fallbackConstant;
+}
+
+function extractRulePosition(section, fallbackPosition) {
+  if (!section) return fallbackPosition;
+  const normalized = normalizeRuleText(section.body);
+
+  if (normalized.includes('truoc dinh nghia nhan vat') || normalized.includes('before')) return 'before_char';
+  if (normalized.includes('sau dinh nghia nhan vat') || normalized.includes('after')) return 'after_char';
+  return fallbackPosition;
+}
+
+function setRuleTarget(group, sourceRule, section) {
+  const constant = extractRuleConstant(section, sourceRule.constant);
+  const position = extractRulePosition(section, sourceRule.card.position);
+  const order = extractRuleOrder(section, getRuleOrder(sourceRule), group);
+  const depth = position === 'before_char' ? 4 : (constant ? 4 : 2);
+  const extPosition = position === 'before_char' ? 0 : 1;
+  const lorebookPosition = position === 'before_char' ? 0 : 1;
+
+  return {
+    ...sourceRule,
+    strategyName: constant ? 'Constant' : 'Selective',
+    constant,
+    positionName: position === 'before_char' ? 'Before Character' : 'After Character',
+    defaultOrder: order,
+    card: { position, extPosition, depth, role: null, order },
+    lorebook: { position: lorebookPosition, depth, role: null, order }
+  };
+}
+
+function parseTargetRulesFromText(text) {
+  const sections = splitRuleSections(text);
+  const rules = cloneDefaultRules();
+  let matched = 0;
+
+  const mappings = [
+    { group: 1, keywords: ['the gioi quan'] },
+    { group: 2, keywords: ['xem luot', 'nhan vat'] },
+    { group: 3, keywords: ['thong tin chi tiet', 'nhan vat cot loi'] },
+    { group: 4, keywords: ['boi canh', 'su kien'] },
+    { group: 5, keywords: ['npc'] }
+  ];
+
+  mappings.forEach(({ group, keywords }) => {
+    const section = findRuleSection(sections, keywords);
+    if (!section) return;
+    rules[group] = setRuleTarget(group, rules[group], section);
+    matched++;
+  });
+
+  return { rules, matched };
+}
+
+function applyDefaultRulePreset(showLog = true) {
+  GROUP_RULES = cloneDefaultRules();
+  saveCurrentRules('worldbook2-default');
+  renderRuleCards();
+  updateActiveEntriesAfterRuleChange();
 
   if (showLog) {
     log('Imported Target Settings Rules from Cấu hình Worldbook 2 preset.', 'success');
   }
+}
+
+function importRuleTextFile(file) {
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    try {
+      const text = String(event.target?.result || '');
+      const { rules, matched } = parseTargetRulesFromText(text);
+      GROUP_RULES = rules;
+      saveCurrentRules(`txt:${file.name}`);
+      renderRuleCards();
+      updateActiveEntriesAfterRuleChange();
+
+      if (matched === 0) {
+        log(`Could not parse rule sections in "${file.name}". Kept Worldbook 2 default preset.`, 'warning');
+      } else {
+        log(`Imported ${matched}/5 Target Settings Rules from "${file.name}".`, matched === 5 ? 'success' : 'warning');
+      }
+    } catch (err) {
+      GROUP_RULES = cloneDefaultRules();
+      renderRuleCards();
+      log(`Import rule TXT failed: ${err.message}`, 'danger');
+    } finally {
+      if (ruleFileInput) ruleFileInput.value = '';
+    }
+  };
+
+  reader.onerror = () => {
+    log(`Cannot read rule TXT file "${file.name}".`, 'danger');
+    if (ruleFileInput) ruleFileInput.value = '';
+  };
+
+  reader.readAsText(file, 'utf-8');
+}
+
+function openRuleFilePicker() {
+  ruleFileInput?.click();
 }
 
 // Function to update placeholder dynamically
@@ -211,13 +382,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const savedCustomModel = localStorage.getItem('st_opt_custom_model');
   if (savedCustomModel) customModelInput.value = savedCustomModel;
 
+  loadStoredRules();
   updateApiUrlPlaceholder();
   updateModelInputVisibility();
   renderRuleCards();
 });
 
 btnImportDefaultRules?.addEventListener('click', () => {
-  applyDefaultRulePreset();
+  openRuleFilePicker();
+});
+
+ruleFileInput?.addEventListener('change', (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  if (!file.name.toLowerCase().endsWith('.txt') && file.type && file.type !== 'text/plain') {
+    alert('Please select a .txt rule file.');
+    if (ruleFileInput) ruleFileInput.value = '';
+    return;
+  }
+
+  importRuleTextFile(file);
 });
 
 // Save settings to Local Storage when changed
