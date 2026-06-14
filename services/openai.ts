@@ -3,6 +3,7 @@ import { OpenAISettings, AIModel, LorebookEntry, WorldbuildingResponse, Lorebook
 import { CHARACTER_TEMPLATE, WORLD_TEMPLATE, SILLY_TAVERN_TECHNICAL_MANUAL } from '../templates';
 import { jsonrepair } from 'jsonrepair';
 import { runRateLimited } from '../utils/rateLimiter';
+import { fetchWithTimeout } from '../utils/fetchWithTimeout';
 
 export const fetchModels = async (baseUrl: string, apiKey: string): Promise<AIModel[]> => {
   let url = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
@@ -14,13 +15,13 @@ export const fetchModels = async (baseUrl: string, apiKey: string): Promise<AIMo
   }
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-    });
+    }, 15000);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -55,7 +56,7 @@ export const fetchFandomData = async (url: string): Promise<string> => {
       try {
         // Try MediaWiki API first
         const apiUrl = `https://${domain}/api.php?action=parse&page=${encodeURIComponent(title)}&format=json&prop=wikitext&origin=*`;
-        const response = await fetch(apiUrl);
+        const response = await fetchWithTimeout(apiUrl, {}, 20000);
         if (response.ok) {
           const data = await response.json();
           if (!data.error && data.parse?.wikitext?.['*']) {
@@ -68,7 +69,7 @@ export const fetchFandomData = async (url: string): Promise<string> => {
     }
 
     // Fallback: Fetch raw HTML and extract text
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url, {}, 20000);
     const html = await response.text();
     
     // Very basic HTML to text extraction
@@ -383,6 +384,13 @@ JSON Structure:
 
   let fullContent = "";
 
+  // Chống treo: trần cứng 300s + idle-watchdog 90s (hủy nếu stream đứng yên).
+  const controller = new AbortController();
+  let hardTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => { try { controller.abort(); } catch {} }, 300000);
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearTimers = () => { if (hardTimer) clearTimeout(hardTimer); if (idleTimer) clearTimeout(idleTimer); hardTimer = idleTimer = null; };
+  const armIdle = () => { if (idleTimer) clearTimeout(idleTimer); idleTimer = setTimeout(() => { try { controller.abort(); } catch {} }, 90000); };
+
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -391,6 +399,7 @@ JSON Structure:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -402,8 +411,10 @@ JSON Structure:
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
       let buffer = "";
+      armIdle();
       while (true) {
         const { done, value } = await reader.read();
+        armIdle();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -428,17 +439,20 @@ JSON Structure:
       fullContent = data.choices?.[0]?.message?.content || "{}";
       if (onProgress) onProgress(fullContent);
     }
-    
+
     const parsed = JSON.parse(cleanJsonString(fullContent));
-    
+
     if (Array.isArray(parsed) || typeof parsed !== 'object' || parsed === null) {
       return { comment: "Error", content: fullContent };
     }
-    
+
     return parsed;
   } catch (error) {
     console.error("Lỗi khi tạo nội dung:", error);
-    return { comment: "Error", content: fullContent || (error as Error).message };
+    const aborted = (error as any)?.name === 'AbortError';
+    return { comment: "Error", content: aborted ? 'Quá thời gian phản hồi (đã hủy để không treo).' : (fullContent || (error as Error).message) };
+  } finally {
+    clearTimers();
   }
 };
 
@@ -515,14 +529,14 @@ ${nsfwInstruction}
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${settings.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    });
+    }, 120000);
 
     if (!response.ok) {
       throw new Error(`Translation Failed: ${response.status}`);
@@ -1202,14 +1216,14 @@ Bạn chỉ được trả về một đối tượng JSON hợp lệ duy nhất
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${settings.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    });
+    }, 120000);
 
     if (!response.ok) {
       throw new Error(`AI Analysis Failed: ${response.status}`);
@@ -1458,14 +1472,14 @@ Bạn PHẢI trả về một ĐỐI TƯỢNG JSON duy nhất, có chứa mảng
     };
 
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${settings.apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
-      });
+      }, 120000);
 
       if (!response.ok) {
         throw new Error(`AI Optimization API Failed: ${response.status}`);
@@ -1595,14 +1609,14 @@ ${prompts.map((p, idx) => `Prompt #${idx+1} [${p.title}]: ${p.content}`).join('\
   };
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${settings.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    });
+    }, 60000);
 
     if (!response.ok) {
       throw new Error(`Kiểm tra API thất bại: ${response.status}`);
@@ -1653,14 +1667,14 @@ CHỈ trả về JSON object thuần: khóa = tiêu đề y nguyên, giá trị 
     response_format: { type: 'json_object' }
   };
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${settings.apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(payload),
-  });
+  }, 90000);
   if (!response.ok) {
     throw new Error(`Phân loại lỗi HTTP ${response.status}`);
   }

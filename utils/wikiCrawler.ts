@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from './fetchWithTimeout';
+
 export interface WikiMenuItem {
   title: string;
   url?: string;
@@ -700,7 +702,7 @@ export async function fetchWikiNavigation(apiUrl: string, domain: string): Promi
   for (const pageName of pagesToTry) {
     try {
       const endpoint = `${apiUrl}?action=parse&page=${encodeURIComponent(pageName)}&format=json&prop=text&origin=*`;
-      const response = await fetch(endpoint);
+      const response = await fetchWithTimeout(endpoint, {}, 15000);
       if (!response.ok) continue;
       const data = await response.json();
       if (data.error) continue;
@@ -1006,7 +1008,8 @@ async function fetchWithProxyRotation(originalUrl: string): Promise<any> {
   for (let i = 0; i < proxyFactories.length; i++) {
     const fetchUrl = proxyFactories[i](originalUrl);
     try {
-      const response = await fetch(fetchUrl);
+      // timeout 20s/lượt: 1 proxy treo sẽ bị hủy & nhảy proxy kế, không kẹt cả crawl.
+      const response = await fetchWithTimeout(fetchUrl, {}, 20000);
       if (response.ok) {
         const text = await response.text();
         let parsedJson: any = null;
@@ -1079,7 +1082,8 @@ async function fetchHtmlWithProxyRotation(originalUrl: string): Promise<string> 
   for (let i = 0; i < proxyFactories.length; i++) {
     const fetchUrl = proxyFactories[i](originalUrl);
     try {
-      const response = await fetch(fetchUrl);
+      // timeout 20s/lượt (xem fetchWithProxyRotation) — chống treo khi proxy đứng.
+      const response = await fetchWithTimeout(fetchUrl, {}, 20000);
       if (response.ok) {
         const text = await response.text();
         if (text && text.trim().length > 100) {

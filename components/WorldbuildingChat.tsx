@@ -322,6 +322,28 @@ YÊU CẦU:
         }
         if (!pipelineRef.current) break;
 
+        // ─── AUTO-RETRY: thử lại 1 lần các mảnh lỗi/timeout, dùng Model CHÍNH (Pro) cho chắc ───
+        // Mảnh hay lỗi nhất là mảnh dày bị Flash quá tải hoặc bị timeout → cho Pro làm lại.
+        const isBad = (r?: PromiseSettledResult<ChunkResult>) =>
+          !r || r.status !== 'fulfilled' || !r.value || r.value.failed;
+        const retryIdx = settledChunks
+          .map((r, ci) => (isBad(r) ? ci : -1))
+          .filter(ci => ci >= 0);
+        if (retryIdx.length > 0 && pipelineRef.current) {
+          setPipelineLogs(prev => [...prev, `[Retry] Bước ${i + 1}: thử lại ${retryIdx.length} mảnh lỗi bằng model chính (${primaryModel})...`]);
+          setChunkStats({ done: 0, total: retryIdx.length, running: 0, model: `${primaryModel} (retry)` });
+          const retryTasks = retryIdx.map(ci => makeTask(chunks[ci], ci, primaryModel));
+          const retryRes = await runRateLimited(retryTasks, { key: primaryModel, rpm: primaryRpm });
+          // Chỉ ghi đè nếu retry KHÁ hơn (thành công); vẫn lỗi thì giữ kết quả cũ.
+          retryIdx.forEach((ci, k) => {
+            const rr = retryRes[k];
+            if (rr && rr.status === 'fulfilled' && rr.value && !rr.value.failed) settledChunks[ci] = rr;
+          });
+          if (!pipelineRef.current) break;
+          const stillBad = retryIdx.filter(ci => isBad(settledChunks[ci])).length;
+          setPipelineLogs(prev => [...prev, `[Retry] Bước ${i + 1}: cứu được ${retryIdx.length - stillBad}/${retryIdx.length} mảnh.${stillBad > 0 ? ` Còn ${stillBad} mảnh vẫn lỗi → bỏ qua.` : ''}`]);
+        }
+
         // Gộp TUẦN TỰ (tránh race) + chống trùng theo comment, rồi áp dụng 1 lần.
         const mergedActions: WorldbuildingAction[] = [];
         let failedChunks = 0;

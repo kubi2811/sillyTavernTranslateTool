@@ -11,6 +11,8 @@
  *    khi chạy local, đồng bộ được giữa nhiều máy qua cùng folder.
  */
 
+import { fetchWithTimeout } from './fetchWithTimeout';
+
 const ENDPOINT = '/__tawa_store';
 
 export function loadLocal<T>(key: string, fallback: T): T {
@@ -32,14 +34,15 @@ export function saveLocal(key: string, value: unknown): void {
   }
   // Mirror ra file (chỉ thành công khi dev-server có middleware; Netlify sẽ lỗi → bỏ qua).
   try {
-    fetch(`${ENDPOINT}/${key}`, { method: 'POST', body: json }).catch(() => {});
+    fetchWithTimeout(`${ENDPOINT}/${key}`, { method: 'POST', body: json }, 8000).catch(() => {});
   } catch { /* không có fetch / lỗi mạng → bỏ qua */ }
 }
 
 /** Đọc 1 key từ file đĩa. Trả null nếu không có file hoặc không chạy dev-server. */
 export async function readDisk<T>(key: string): Promise<T | null> {
   try {
-    const res = await fetch(`${ENDPOINT}/${key}`, { method: 'GET' });
+    // timeout 8s: nếu dev-server treo, hydrate KHÔNG bị kẹt vĩnh viễn (sẽ rơi về localStorage).
+    const res = await fetchWithTimeout(`${ENDPOINT}/${key}`, { method: 'GET' }, 8000);
     if (!res.ok) return null;
     const text = await res.text();
     return JSON.parse(text) as T;
@@ -51,7 +54,7 @@ export async function readDisk<T>(key: string): Promise<T | null> {
 /** Lấy đường dẫn folder đang lưu (để hiển thị trong Settings). Null nếu là bản web tĩnh. */
 export async function getStorageDir(): Promise<string | null> {
   try {
-    const res = await fetch(`${ENDPOINT}/__info`, { method: 'GET' });
+    const res = await fetchWithTimeout(`${ENDPOINT}/__info`, { method: 'GET' }, 8000);
     if (!res.ok) return null;
     const data = await res.json();
     return data?.dir || null;
