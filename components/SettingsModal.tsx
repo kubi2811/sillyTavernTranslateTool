@@ -5,6 +5,7 @@ import { Button } from './ui/Button';
 import { OpenAISettings, AIModel, WorldbuildingStep, AIPromptBlock } from '../types';
 import { fetchModels, worldbuildingChat, testAIPrompts } from '../services/openai';
 import { DEFAULT_MASTER_INSTRUCTION } from '../constants/masterInstruction';
+import { DEFAULT_STEPS, DEFAULT_PROMPTS } from '../constants/pipelineDefaults';
 import { RefreshCw, Save, Server, Sliders, Flame, Ruler, Search, Plus, Trash2, List, Settings, HelpCircle, Sparkles } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -17,59 +18,9 @@ interface SettingsModalProps {
   storageDir?: string | null;               // đường dẫn folder lưu dữ liệu (null = lưu trên trình duyệt)
 }
 
-const DEFAULT_WORLDBUILDING_STEPS: WorldbuildingStep[] = [
-  {
-    id: 'step_1',
-    name: 'Bước 1: Thế giới quan & Tổng cương',
-    prompt: 'Hãy phân tích kĩ lưỡng toàn bộ tài liệu Wiki được cung cấp để tìm kiếm bối cảnh lịch sử lập quốc, tôn giáo vĩ mô, các học thuyết ma pháp, định luật sức mạnh cốt lõi, quy tắc thế giới vĩ mô. Tạo ra các Lorebook Entry chi tiết cho Nhóm 1 (Thế giới quan & Tổng cương) với Vị trí before_char, Thứ tự Order 1-3, và Chiến lược Constant (constant: true, selective: false).',
-    enabled: true
-  },
-  {
-    id: 'step_2',
-    name: 'Bước 2: Phe phái, Tổ chức & Xem lướt nhân vật',
-    prompt: 'Trích xuất thông tin về các phe phái chính trị, gia tộc, bang hội, tổ chức xã hội và danh sách toàn bộ nhân vật có mặt trong thế giới. Tạo ra mục Xem lướt nhân vật & thế lực ở Nhóm 2 với Vị trí before_char, Thứ tự Order 4, và Chiến lược Constant (constant: true, selective: false).',
-    enabled: true
-  },
-  {
-    id: 'step_3',
-    name: 'Bước 3: Cảnh vật & Chi tiết địa danh',
-    prompt: 'Dựa trên tài liệu Wiki, hãy trích xuất các địa danh vật lý, phòng ốc, dinh thự, live house, cảnh quan chi tiết. Tạo các mục chi tiết ở Nhóm 4 (Cảnh vật & Chi tiết sự kiện) với Vị trí after_char, Thứ tự Order 80, và Chiến lược Selective (constant: false, selective: true) có scan_depth = 2.',
-    enabled: true
-  },
-  {
-    id: 'step_4',
-    name: 'Bước 4: Hồ sơ nhân vật chi tiết & Chống bỏ sót mổ xẻ 100%',
-    prompt: 'Đồng bộ hóa 100% hồ sơ của các nhân vật chính/cốt lõi và tài liệu NPC phụ có mặt trong tài liệu Wiki. Tạo ra các mục ở Nhóm 3 (Chi tiết nhân vật cốt lõi - Order 99) hoặc Nhóm 5 (Tài liệu NPC - Order 100) tương ứng ở Vị trí after_char, Chiến lược Selective (constant: false, selective: true) có scan_depth = 2. Rà soát lại toàn bộ Wiki để đảm bảo mổ xẻ kĩ lưỡng 100% thông tin không bị sót bất kì yếu tố nào.',
-    enabled: true
-  }
-];
-
-const DEFAULT_AI_PROMPTS: AIPromptBlock[] = [
-  {
-    id: 'prompt_1',
-    title: 'PROMPT 1: THẾ GIỚI QUAN',
-    content: `[THẾ GIỚI QUAN - HƯỚNG DẪN AI]
-- Đóng vai trò là Sử Gia Vũ Trụ. Khi nhận tài liệu bối cảnh, hãy trích xuất toàn bộ lịch sử lập quốc, tôn giáo, chủng tộc cổ xưa và quy luật sinh thái học.
-- Định dạng xuất ra bắt buộc phải theo chuẩn WORLD_TEMPLATE.
-- Đảm bảo độ sâu chi tiết tối đa, mô tả rõ ràng các mối quan hệ địa lý và xung đột chủng tộc vĩ mô.`
-  },
-  {
-    id: 'prompt_2',
-    title: 'PROMPT 2: HỆ THỐNG',
-    content: `[HỆ THỐNG SỨC MẠNH & LUẬT VẬT LÝ]
-- Đóng vai trò là Đại Pháp Sư / Chuyên Gia Thiết Kế Game. Trích xuất toàn bộ hệ thống cấp bậc sức mạnh, các định luật ma pháp, thuộc tính vật lý, các cấm kỹ và quy tắc tu luyện.
-- Thiết lập các entry nền tảng ở vị trí before_char, order 1-3, constant: true, selective: false; chỉ dùng at_depth_system depth 0 cho mục "Giải thích lần hai" sửa hiểu lầm trực tiếp.
-- Mô tả cực kỳ logic, tránh mơ hồ và mâu thuẫn.`
-  },
-  {
-    id: 'prompt_3',
-    title: 'PROMPT 3: NHÂN VẬT',
-    content: `[HỒ SƠ NHÂN VẬT CHI TIẾT - CHARACTER SCAN]
-- Đóng vai trò là Nhà Tâm Lý Học và Nhà Biên Kịch. Trích xuất chân dung, tính cách, thói quen sinh hoạt, tiểu sử và mối quan hệ xã hội của từng nhân vật hoặc sinh vật xuất hiện trong tài liệu.
-- Định dạng xuất ra bắt buộc tuân thủ CHARACTER_TEMPLATE tuyệt đối, bao gồm cả mô tả ngoại hình bạch miêu và thuộc tính NSFW (nếu bật).
-- Đảm bảo độ dài và sự sống động, giúp nhân vật như đang "thở" trên từng trang giấy.`
-  }
-];
+// 5 bước + 5 prompt gốc lấy từ nguồn chung (constants/pipelineDefaults).
+const DEFAULT_WORLDBUILDING_STEPS = DEFAULT_STEPS;
+const DEFAULT_AI_PROMPTS = DEFAULT_PROMPTS;
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -80,7 +31,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   storageDir,
   onAnalyzePipeline,
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'guide'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'guide' | 'steps'>('general');
   const [formData, setFormData] = useState<OpenAISettings>(() => {
     const s = { ...settings };
     // 5 bước vẫn chạy NGẦM (đảm bảo Zero Omission) dù không còn UI sửa riêng từng bước.
@@ -294,6 +245,21 @@ ${master}`;
             }`}
           >
             <Sparkles size={14} /> Hướng dẫn tổng
+          </button>
+          <button
+            onClick={() => setActiveTab('steps')}
+            className={`flex items-center gap-2 px-4 py-2.5 border-b-2 font-mono text-xs uppercase tracking-wider font-semibold transition-all relative ${
+              activeTab === 'steps'
+                ? 'border-indigo-500 text-slate-100 bg-slate-800/20'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <List size={14} /> Các bước AI
+            {formData.steps && formData.steps.filter(s => s.enabled).length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[9px] bg-indigo-600 text-indigo-100 border border-indigo-400/35">
+                {formData.steps.filter(s => s.enabled).length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -752,6 +718,78 @@ ${master}`;
               >
                 Save & Initialize AI
               </Button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'steps' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="bg-slate-900/40 p-3 rounded-lg border border-slate-700/50 text-xs text-slate-300 leading-relaxed space-y-1.5">
+              <span className="font-bold text-indigo-400 flex items-center gap-1.5 font-mono uppercase tracking-wide">
+                <List size={13} strokeWidth={2.5} /> 5 bước sinh thế giới (chạy tuần tự)
+              </span>
+              <p>
+                Pipeline chạy <b>lần lượt</b> các bước đang bật: ①Thế Giới Quan+META → ②Hệ Thống → ③Nhân Vật → ④Khu Vực → ⑤Dòng Thời Gian. Mỗi bước quét TOÀN BỘ tài liệu cho đúng nhóm của nó (chống bỏ sót).
+              </p>
+              <p className="text-[11px] text-slate-400 italic">Tắt bước nào thì bỏ tick "Kích hoạt". Có thể sửa prompt từng bước hoặc thêm bước mới.</p>
+            </div>
+
+            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1 custom-scrollbar">
+              {(formData.steps || []).map((step, idx) => (
+                <div key={step.id} className="bg-slate-950/60 rounded-xl p-3.5 border border-slate-800/80 hover:border-slate-700/80 transition-colors space-y-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="font-mono text-xs text-indigo-400 font-bold bg-indigo-950/40 border border-indigo-500/20 px-2 py-0.5 rounded-md shrink-0">#{idx + 1}</span>
+                      <input
+                        type="text"
+                        className="bg-transparent border-b border-dashed border-slate-700 focus:border-indigo-500 focus:outline-none text-xs font-bold text-slate-100 font-mono w-full px-1 py-0.5"
+                        value={step.name}
+                        onChange={(e) => handleUpdateStep(step.id, { name: e.target.value })}
+                        placeholder="Tên bước..."
+                      />
+                    </div>
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-700 bg-slate-900 text-indigo-500 focus:ring-0 w-3.5 h-3.5"
+                          checked={step.enabled}
+                          onChange={(e) => handleUpdateStep(step.id, { enabled: e.target.checked })}
+                        />
+                        <span className="text-[10px] uppercase font-mono tracking-wider font-semibold text-slate-400">Kích hoạt</span>
+                      </label>
+                      <button onClick={() => handleRemoveStep(step.id)} className="text-slate-500 hover:text-red-400 transition-colors p-1" title="Xóa bước này">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    className="w-full bg-slate-900/80 border border-slate-800 text-slate-200 placeholder-slate-600 rounded-lg px-3 py-2 text-[11px] font-mono leading-relaxed focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 min-h-[90px]"
+                    rows={4}
+                    value={step.prompt}
+                    onChange={(e) => handleUpdateStep(step.id, { prompt: e.target.value })}
+                    placeholder="Chỉ dẫn AI trích xuất gì + định dạng entry ra sao..."
+                  />
+                </div>
+              ))}
+              {(formData.steps || []).length === 0 && (
+                <div className="text-center py-8 rounded-xl bg-slate-950/20 border border-slate-800/50">
+                  <List size={24} className="text-slate-600 mx-auto mb-2" />
+                  <p className="text-xs text-slate-400">Chưa có bước nào. Bấm "Thêm bước mới".</p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-1 flex justify-between items-center gap-3">
+              <Button variant="secondary" onClick={handleAddStep} icon={<Plus size={14} />} className="text-xs font-semibold py-1.5 px-3 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border-none rounded-lg">
+                Thêm bước mới
+              </Button>
+              <button
+                onClick={() => { if (window.confirm('Khôi phục 5 bước gốc? (xóa tùy biến bước hiện tại)')) setFormData(prev => ({ ...prev, steps: JSON.parse(JSON.stringify(DEFAULT_WORLDBUILDING_STEPS)) })); }}
+                className="text-[11px] text-indigo-400 hover:text-indigo-300 py-1 px-2 bg-indigo-950/20 border border-indigo-500/20 rounded flex items-center gap-1"
+              >
+                <RefreshCw size={11} /> Khôi phục 5 bước gốc
+              </button>
             </div>
           </div>
         )}

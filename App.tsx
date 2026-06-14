@@ -15,6 +15,7 @@ import { Download, Upload, Settings, BookOpen, MessageSquare, Edit, Languages, H
 import { getOptimizedEntrySettings } from './utils/optimize';
 import { optimizeEntireLorebook } from './services/openai';
 import { DEFAULT_MASTER_INSTRUCTION } from './constants/masterInstruction';
+import { DEFAULT_STEPS, DEFAULT_PROMPTS, PIPELINE_VERSION } from './constants/pipelineDefaults';
 import { loadLocal, saveLocal, readDisk, getStorageDir, getLocalStorageUsage } from './utils/storage';
 
 const DEFAULT_SETTINGS: OpenAISettings = {
@@ -58,25 +59,19 @@ function buildSettings(parsed: any): OpenAISettings {
   if (!merged.masterInstruction || !merged.masterInstruction.trim()) {
     merged.masterInstruction = DEFAULT_MASTER_INSTRUCTION;
   }
-  if (!merged.aiPrompts || merged.aiPrompts.length === 0) {
-    merged.aiPrompts = [
-      {
-        id: 'prompt_1',
-        title: 'PROMPT 1: THẾ GIỚI QUAN',
-        content: `[THẾ GIỚI QUAN - HƯỚNG DẪN AI]\n- Đóng vai trò là Sử Gia Vũ Trụ. Khi nhận tài liệu bối cảnh, hãy trích xuất toàn bộ lịch sử lập quốc, tôn giáo, chủng tộc cổ xưa và quy luật sinh thái học.\n- Thiết lập các entry ở vị trí before_char, order 1 (hoặc 1-3) dưới dạng thường trú (constant: true, selective: false), scan_depth: 4, bật prevent_recursion: true và non_recursable: true.\n- Định dạng xuất ra bắt buộc phải theo chuẩn WORLD_TEMPLATE.\n- Đảm bảo độ sâu chi tiết tối đa, mô tả rõ ràng các mối quan hệ địa lý và xung đột chủng tộc vĩ mô.`
-      },
-      {
-        id: 'prompt_2',
-        title: 'PROMPT 2: HỆ THỐNG',
-        content: `[HỆ THỐNG SỨC MẠNH & LUẬT VẬT LÝ]\n- Đóng vai trò là Đại Pháp Sư / Chuyên Gia Thiết Kế Game. Trích xuất toàn bộ hệ thống cấp bậc sức mạnh, các định luật ma pháp, thuộc tính vật lý, các cấm kỹ và quy tắc tu luyện.\n- Thiết lập các entry ở vị trí before_char, order 2 (hoặc 1-3) dưới dạng thường trú (constant: true, selective: false), scan_depth: 4, bật prevent_recursion: true và non_recursable: true.\n- Mô tả cực kỳ logic, tránh mơ hồ và mâu thuẫn.`
-      },
-      {
-        id: 'prompt_3',
-        title: 'PROMPT 3: NHÂN VẬT',
-        content: `[HỒ SƠ NHÂN VẬT CHI TIẾT - CHARACTER SCAN]\n- Đóng vai trò là Nhà Tâm Lý Học và Nhà Biên Kịch. Trích xuất chân dung, tính cách, thói quen sinh hoạt, tiểu sử và mối quan hệ xã hội của từng nhân vật hoặc sinh vật xuất hiện trong tài liệu.\n- Thiết lập các entry ở vị trí after_char, order 99 dưới dạng kích hoạt từ khóa (constant: false, selective: true), scan_depth: 2, bật prevent_recursion: true và non_recursable: true.\n- Định dạng xuất ra bắt buộc tuân thủ CHARACTER_TEMPLATE tuyệt đối, bao gồm cả mô tả ngoại hình bạch miêu và thuộc tính NSFW (nếu bật).\n- Đảm bảo độ dài và sự sống động, giúp nhân vật như đang "thở" trên từng trang giấy.`
-      }
-    ];
+  // ─── MIGRATE bộ bước/prompt: bản cũ chỉ 4 bước (thiếu Dòng Thời Gian) + lệch nhau ───
+  // Nạp 5 bước + 5 prompt gốc. Giữ nguyên nếu user đã tự thêm (≥5 bước) để không mất tùy biến.
+  if ((merged.pipelineVersion ?? 0) < PIPELINE_VERSION) {
+    if (!merged.steps || merged.steps.length < 5) {
+      merged.steps = JSON.parse(JSON.stringify(DEFAULT_STEPS));
+    }
+    if (!merged.aiPrompts || merged.aiPrompts.length < 5) {
+      merged.aiPrompts = JSON.parse(JSON.stringify(DEFAULT_PROMPTS));
+    }
+    merged.pipelineVersion = PIPELINE_VERSION;
   }
+  if (!merged.steps || merged.steps.length === 0) merged.steps = JSON.parse(JSON.stringify(DEFAULT_STEPS));
+  if (!merged.aiPrompts || merged.aiPrompts.length === 0) merged.aiPrompts = JSON.parse(JSON.stringify(DEFAULT_PROMPTS));
   if (!merged.apiKey && typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) {
     merged.apiKey = process.env.GEMINI_API_KEY;
   }
@@ -243,6 +238,16 @@ const App: React.FC = () => {
       ...prev,
       entries: prev.entries.map(e => e.uid === updated.uid ? updated : e)
     }));
+  };
+
+  // Xóa TẤT CẢ mục khỏi giao diện (chỉ dọn lorebook đang hiển thị + bộ nhớ tự lưu;
+  // KHÔNG đụng tới Wiki gốc hay file đã export). Giải quyết tình trạng "dính entry cũ".
+  const handleClearAllEntries = () => {
+    if (lorebook.entries.length === 0) return;
+    if (!window.confirm(`Xóa toàn bộ ${lorebook.entries.length} mục khỏi giao diện?\n(Không ảnh hưởng Wiki gốc; chỉ dọn danh sách hiện tại. Bộ nhớ tự lưu cũng được reset để không hiện lại khi mở lại.)`)) return;
+    setLorebook(prev => ({ ...prev, entries: [] }));
+    setSelectedUid(null);
+    // autosave effect sẽ ghi trạng thái rỗng vào localStorage + file → mở lại KHÔNG còn entry cũ.
   };
 
   const handleAIInsert = (data: Partial<LorebookEntry>) => {
@@ -600,6 +605,7 @@ const App: React.FC = () => {
           onAdd={handleAddEntry}
           onDelete={setDeleteConfirmId}
           onDuplicate={handleDuplicateEntry}
+          onClearAll={handleClearAllEntries}
         />
         
         {/* Right Content Area (Swappable) */}

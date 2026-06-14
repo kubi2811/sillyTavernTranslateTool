@@ -1,6 +1,6 @@
 import React from 'react';
 import { LorebookEntry } from '../types';
-import { Plus, Search, Book, FileText, Trash2, Copy } from 'lucide-react';
+import { Plus, Search, Book, FileText, Trash2, Copy, Eraser } from 'lucide-react';
 
 interface LorebookListProps {
   entries: LorebookEntry[];
@@ -9,6 +9,7 @@ interface LorebookListProps {
   onAdd: () => void;
   onDelete: (id: number) => void;
   onDuplicate: (entry: LorebookEntry) => void;
+  onClearAll?: () => void;
 }
 
 export const LorebookList: React.FC<LorebookListProps> = ({
@@ -18,6 +19,7 @@ export const LorebookList: React.FC<LorebookListProps> = ({
   onAdd,
   onDelete,
   onDuplicate,
+  onClearAll,
 }) => {
   const [search, setSearch] = React.useState('');
 
@@ -37,13 +39,24 @@ export const LorebookList: React.FC<LorebookListProps> = ({
             <Book className="text-indigo-500" size={20} />
             Mục lục
           </h2>
-          <button 
-            onClick={onAdd}
-            className="p-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors shadow-lg shadow-indigo-500/20"
-            title="Thêm mục mới"
-          >
-            <Plus size={18} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onClearAll && entries.length > 0 && (
+              <button
+                onClick={onClearAll}
+                className="p-1.5 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-500/25 rounded-md transition-colors"
+                title="Xóa tất cả mục khỏi giao diện (không đụng tới Wiki gốc)"
+              >
+                <Eraser size={16} />
+              </button>
+            )}
+            <button
+              onClick={onAdd}
+              className="p-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors shadow-lg shadow-indigo-500/20"
+              title="Thêm mục mới"
+            >
+              <Plus size={18} />
+            </button>
+          </div>
         </div>
         
         <div className="relative">

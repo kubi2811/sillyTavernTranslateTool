@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Lorebook, OpenAISettings, ChatMessage, WorldbuildingAction, WorldbuildingMode } from '../types';
 import { worldbuildingChat } from '../services/openai';
 import { runRateLimited } from '../utils/rateLimiter';
+import { DEFAULT_STEPS } from '../constants/pipelineDefaults';
 import { Button } from './ui/Button';
 import { Send, Bot, User, Loader2, Sparkles, PlusCircle, Edit3, Trash2, Image as ImageIcon, X, CornerDownLeft, Dna, Layers, MessageSquare, FileText, Wand2, ChevronLeft, ChevronRight, Clock, Cpu, Activity } from 'lucide-react';
 
@@ -89,32 +90,8 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const DEFAULT_WORLDBUILDING_STEPS = [
-    {
-      id: 'step_1',
-      name: 'Bước 1: Thế giới quan & Tổng cương',
-      prompt: 'Hãy phân tích kĩ lưỡng toàn bộ tài liệu Wiki được cung cấp để tìm kiếm bối cảnh lịch sử lập quốc, tôn giáo vĩ mô, các học thuyết ma pháp, định luật sức mạnh cốt lõi, quy tắc thế giới vĩ mô. Tạo ra các Lorebook Entry chi tiết cho Nhóm 1 (Thế giới quan & Tổng cương) với Vị trí before_char, Thứ tự Order 1-3, và Chiến lược Constant (constant: true, selective: false).',
-      enabled: true
-    },
-    {
-      id: 'step_2',
-      name: 'Bước 2: Phe phái, Tổ chức & Xem lướt nhân vật',
-      prompt: 'Trích xuất thông tin về các phe phái chính trị, gia tộc, bang hội, tổ chức xã hội và danh sách toàn bộ nhân vật có mặt trong thế giới. Tạo ra mục Xem lướt nhân vật & thế lực ở Nhóm 2 với Vị trí before_char, Thứ tự Order 4, và Chiến lược Constant (constant: true, selective: false).',
-      enabled: true
-    },
-    {
-      id: 'step_3',
-      name: 'Bước 3: Cảnh vật & Chi tiết địa danh',
-      prompt: 'Dựa trên tài liệu Wiki, hãy trích xuất các địa danh vật lý, phòng ốc, dinh thự, live house, cảnh quan chi tiết. Tạo các mục chi tiết ở Nhóm 4 (Cảnh vật & Chi tiết sự kiện) với Vị trí after_char, Thứ tự Order 80, và Chiến lược Selective (constant: false, selective: true) có scan_depth = 2.',
-      enabled: true
-    },
-    {
-      id: 'step_4',
-      name: 'Bước 4: Hồ sơ nhân vật chi tiết & Chống bỏ sót mổ xẻ 100%',
-      prompt: 'Đồng bộ hóa 100% hồ sơ của các nhân vật chính/cốt lõi và tài liệu NPC phụ có mặt trong tài liệu Wiki. Tạo ra các mục ở Nhóm 3 (Chi tiết nhân vật cốt lõi - Order 99) hoặc Nhóm 5 (Tài liệu NPC - Order 100) tương ứng ở Vị trí after_char, Chiến lược Selective (constant: false, selective: true) có scan_depth = 2. Rà soát lại toàn bộ Wiki để đảm bảo mổ xẻ kĩ lưỡng 100% thông tin không bị sót bất kì yếu tố nào.',
-      enabled: true
-    }
-  ];
+  // 5 bước gốc (worldview+meta, hệ thống, nhân vật, khu vực, dòng thời gian) — nguồn dùng chung.
+  const DEFAULT_WORLDBUILDING_STEPS = DEFAULT_STEPS;
 
   const handleStartPipeline = () => {
     if (!selectedDocument) return;
@@ -198,6 +175,50 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
     let currentHistory = [...messages];
     setInput('');
 
+    // ─── CHỐNG TRÙNG + COMMIT TĂNG DẦN (dùng chung cho cả pipeline) ───
+    // Tên đã có (chuẩn hóa) để mảnh sau không tạo lại mục mảnh trước đã tạo.
+    const normName = (c?: string) => String(c || '')
+      .toLowerCase().replace(/\s+/g, ' ').trim();
+    // "Singleton": mục TỔNG QUAN chỉ nên có DUY NHẤT 1 (Thế Giới Quan, META).
+    // Bước 1 chạy nhiều mảnh song song → mỗi mảnh đẻ 1 bản → phải gộp về 1.
+    const SINGLETON_TAGS = ['thế giới quan', 'tổng cương', 'worldview', 'meta_setup', 'meta setup', '[meta]', 'world setup'];
+    const singletonKey = (c?: string): string | null => {
+      const n = normName(c).replace(/[[\]()]/g, ' ').replace(/\s+/g, ' ').trim();
+      for (const t of SINGLETON_TAGS) {
+        if (n.startsWith(t)) return t.replace(/[_\s]/g, ''); // "meta_setup"=="meta setup"
+      }
+      return null;
+    };
+    const committedNames = new Set<string>();
+    const committedSingletons = new Set<string>(); // tag singleton đã có 1 bản → chặn bản thứ 2
+    for (const e of currentLorebookState.entries) {
+      const nm = normName(e.comment); if (nm) committedNames.add(nm);
+      const sk = singletonKey(e.comment); if (sk) committedSingletons.add(sk);
+    }
+
+    // Commit ĐỒNG BỘ (JS đơn luồng ⇒ không cần Lock): dedup + áp dụng NGAY mảnh vừa xong
+    // → entry hiện dần để quan sát. Trả số mục mới thực sự thêm.
+    const commitActions = (acts: WorldbuildingAction[]): number => {
+      const fresh: WorldbuildingAction[] = [];
+      for (const act of acts) {
+        const comment = act.data?.comment;
+        const nm = normName(comment);
+        const sk = singletonKey(comment);
+        if (sk) {
+          if (committedSingletons.has(sk)) continue; // đã có 1 mục tổng quan này → bỏ bản trùng
+          committedSingletons.add(sk);
+        }
+        if (nm) {
+          if (committedNames.has(nm)) continue; // trùng tên → bỏ
+          committedNames.add(nm);
+        }
+        currentLorebookState.entries.push(act.data as any);
+        fresh.push(act);
+      }
+      if (fresh.length > 0) onApplyActions(fresh); // áp dụng tăng dần → UI cập nhật ngay
+      return fresh.length;
+    };
+
     try {
       for (let i = 0; i < enabledSteps.length; i++) {
         if (!pipelineRef.current) break;
@@ -254,9 +275,10 @@ YÊU CẦU:
 3. Luôn đặt "status": "DONE" (mỗi phân mảnh xử lý gọn trong 1 lượt).`;
 
         // Factory: 1 task mổ xẻ 1 mảnh bằng MODEL chỉ định (Pro hoặc Flash).
-        type ChunkResult = { actions: WorldbuildingAction[]; failed: boolean; error: string };
+        // COMMIT NGAY khi mảnh xong (qua commitActions đồng bộ) → entry hiện dần + dedup tức thì.
+        type ChunkResult = { added: number; failed: boolean; error: string };
         const makeTask = (chunk: string, ci: number, model: string) => async (): Promise<ChunkResult> => {
-          if (!pipelineRef.current) return { actions: [], failed: false, error: '' };
+          if (!pipelineRef.current) return { added: 0, failed: false, error: '' };
           // +1 luồng đang chạy (badge "đang chạy N luồng" cập nhật ngay khi mảnh khởi động)
           setChunkStats(p => ({ ...p, running: p.running + 1 }));
           try {
@@ -273,11 +295,13 @@ YÊU CẦU:
               300000 // trần 5 phút + tự hủy nếu stream đứng yên 90s (chống 1 mảnh kẹt treo cả pipeline)
             );
             const acts = (resp?.actions || []).filter((a: any) => a && a.type === 'create' && a.data) as WorldbuildingAction[];
-            return { actions: acts, failed: false, error: '' };
+            // Commit đồng bộ ngay tại đây (JS đơn luồng nên không cần Lock) → UI thấy entry mới.
+            const added = commitActions(acts);
+            return { added, failed: false, error: '' };
           } catch (e: any) {
             const msg = String(e?.message || e || 'Lỗi không xác định');
             console.error(`[Pipeline] Bước ${i + 1} • mảnh ${ci + 1} (${model}) lỗi API:`, e);
-            return { actions: [], failed: true, error: msg };
+            return { added: 0, failed: true, error: msg };
           } finally {
             // -1 luồng, +1 mảnh xong → progress bar phụ tiến lên ngay cả khi mảnh đó rỗng.
             setChunkStats(p => ({ ...p, running: Math.max(0, p.running - 1), done: p.done + 1 }));
@@ -344,9 +368,9 @@ YÊU CẦU:
           setPipelineLogs(prev => [...prev, `[Retry] Bước ${i + 1}: cứu được ${retryIdx.length - stillBad}/${retryIdx.length} mảnh.${stillBad > 0 ? ` Còn ${stillBad} mảnh vẫn lỗi → bỏ qua.` : ''}`]);
         }
 
-        // Gộp TUẦN TỰ (tránh race) + chống trùng theo comment, rồi áp dụng 1 lần.
-        const mergedActions: WorldbuildingAction[] = [];
+        // Mỗi mảnh đã COMMIT tăng dần (dedup + áp dụng ngay). Ở đây chỉ TỔNG KẾT bước.
         let failedChunks = 0;
+        let stepAdded = 0;
         const errorSamples: string[] = [];
         for (const r of settledChunks) {
           if (r.status !== 'fulfilled' || !r.value) {
@@ -359,26 +383,15 @@ YÊU CẦU:
             failedChunks++;
             if (r.value.error) errorSamples.push(r.value.error);
           }
-          for (const act of r.value.actions) {
-            const name = act.data?.comment?.trim().toLowerCase();
-            if (name) {
-              const dup = currentLorebookState.entries.some(e => e.comment?.trim().toLowerCase() === name)
-                || mergedActions.some(a => a.data?.comment?.trim().toLowerCase() === name);
-              if (dup) continue;
-              currentLorebookState.entries.push(act.data as any);
-            }
-            mergedActions.push(act);
-          }
+          stepAdded += r.value.added || 0;
         }
 
-        if (mergedActions.length > 0) {
-          onApplyActions(mergedActions);
-          const createdNames = mergedActions.map(a => a.data?.comment).filter(Boolean).join(', ');
-          setPipelineLogs(prev => [...prev, `[Tạo mới] Bước ${i + 1}: +${mergedActions.length} mục — ${createdNames}`]);
+        if (stepAdded > 0) {
+          setPipelineLogs(prev => [...prev, `[Tạo mới] Bước ${i + 1}: +${stepAdded} mục (đã chống trùng + hiện dần).`]);
           currentHistory.push({
             id: `pipeline_a_${Date.now()}_${i}`,
             role: 'assistant',
-            content: `Bước ${i + 1} (${currentStep.name}): tạo ${mergedActions.length} entry từ ${chunks.length} phân mảnh.`,
+            content: `Bước ${i + 1} (${currentStep.name}): tạo ${stepAdded} entry từ ${chunks.length} phân mảnh.`,
             timestamp: Date.now()
           } as ChatMessage);
           setMessages([...currentHistory]);
@@ -392,7 +405,7 @@ YÊU CẦU:
         }
 
         const cleanStepName = currentStep.name.replace(/^Bước\s+\d+:\s*/i, '');
-        setPipelineLogs(prev => [...prev, `✅ Hoàn thành bước [${i + 1}]: thu được ${mergedActions.length} mục về [${cleanStepName}]`]);
+        setPipelineLogs(prev => [...prev, `✅ Hoàn thành bước [${i + 1}]: thu được ${stepAdded} mục về [${cleanStepName}]`]);
       }
 
       if (pipelineRef.current) {

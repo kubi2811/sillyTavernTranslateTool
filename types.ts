@@ -78,6 +78,7 @@ export interface OpenAISettings {
   aiPrompts?: AIPromptBlock[]; // AI Prompt Management Blocks
   activePromptId?: string; // Currently active system prompt block ID
   masterInstruction?: string; // "Hướng dẫn tổng" — 1 text bự, chỉ dẫn CHUNG áp dụng cho mọi bước pipeline (gộp từ 2 tab cũ)
+  pipelineVersion?: number;   // Phiên bản bộ bước/prompt mặc định → để App tự migrate cấu hình cũ (4 bước → 5 bước)
 }
 
 export interface WorldbuildingStep {
