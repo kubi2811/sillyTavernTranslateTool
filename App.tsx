@@ -533,7 +533,18 @@ const App: React.FC = () => {
              className="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-sm w-32 md:w-48 text-center"
              placeholder="Tên Lorebook"
            />
-           <div className="h-6 w-px bg-slate-700 mx-1"></div>
+            <div className="h-6 w-px bg-slate-700 mx-1"></div>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => window.open('/lorebook-formatter/', '_blank', 'noopener,noreferrer')}
+              icon={<BookOpen size={14}/>}
+              className="px-3 bg-emerald-950/40 border-emerald-500/30 text-emerald-200 hover:bg-emerald-900/60 hover:border-emerald-400/60"
+              title="Mở SillyTavern Lorebook Formatter"
+            >
+              <span className="hidden md:inline">Check LB</span>
+            </Button>
            
            <label className="cursor-pointer p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors" title="Nhập JSON">
              <Upload size={18} />

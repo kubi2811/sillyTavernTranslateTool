@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SillyTavern Lorebook & Card AI Optimizer</title>
+  <meta name="description" content="Optimize and correct SillyTavern character cards and lorebooks automatically using AI.">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- CSS Link -->
+  <link rel="stylesheet" href="/index.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>ST Optimizer <span class="badge badge-accent">AI</span></span>
+        </div>
+        <p class="subtitle">SillyTavern Card & Lorebook Formatter</p>
+      </div>
+
+      <!-- Section: API Configuration -->
+      <section class="sidebar-section">
+        <h3>AI API Configuration</h3>
+        
+        <div class="form-group">
+          <label for="api-provider">Provider</label>
+          <select id="api-provider">
+            <option value="gemini">Google Gemini (Recommended)</option>
+            <option value="openai">OpenAI (Compatible)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="api-url">API Base URL</label>
+          <input type="text" id="api-url" placeholder="Default endpoint..." />
+        </div>
+
+        <div class="form-group">
+          <label for="api-key">API Key</label>
+          <div class="input-password-wrapper">
+            <input type="password" id="api-key" placeholder="Enter your API key..." />
+            <button type="button" id="toggle-api-key" class="btn-icon-toggle">
+              <svg class="icon-eye" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group" style="display: flex; gap: 8px; align-items: center; margin-top: 12px; margin-bottom: 20px;">
+          <button type="button" id="btn-validate-key" class="btn btn-secondary" style="flex-grow: 1; padding: 8px 12px; font-size: 0.8rem; height: 36px;">
+            Validate & Init Key
+          </button>
+          <span id="validation-status-indicator" style="font-size: 1.1rem; min-width: 20px; display: inline-block; text-align: center;" title="Validation Status"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="api-model">Model</label>
+          <select id="api-model">
+            <!-- Gemini Options -->
+            <option value="gemini-2.0-flash" selected>gemini-2.0-flash (Recommended)</option>
+            <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite</option>
+            <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+            <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+            <option value="gemini-2.0-pro-exp-02-05">gemini-2.0-pro-exp</option>
+            <!-- OpenAI / Compatibles -->
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-4-turbo">gpt-4-turbo</option>
+            <!-- DeepSeek -->
+            <option value="deepseek-chat">deepseek-chat (DeepSeek V3)</option>
+            <option value="deepseek-reasoner">deepseek-reasoner (DeepSeek R1)</option>
+            <!-- Anthropic / Claude (via proxy) -->
+            <option value="claude-3-5-sonnet-latest">claude-3-5-sonnet-latest</option>
+            <!-- Custom -->
+            <option value="custom">Custom Model...</option>
+          </select>
+        </div>
+
+        <div class="form-group hidden" id="custom-model-group">
+          <label for="custom-model">Custom Model Name</label>
+          <input type="text" id="custom-model" placeholder="Enter custom model name..." />
+        </div>
+      </section>
+
+      <!-- Section: Custom Group Rules -->
+      <section class="sidebar-section collapsible">
+        <div class="section-title-wrapper" id="rules-toggle">
+          <h3>Target Settings Rules</h3>
+          <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        
+        <div class="collapsible-content" id="rules-content">
+          <!-- Nhóm 1 -->
+          <div class="group-rule-card" data-group="1">
+            <h4 class="group-1-text">Nhóm 1: Sức Mạnh Cốt Lõi</h4>
+            <div class="rule-grid">
+              <div><span class="label-tiny">Strategy</span><span>Constant</span></div>
+              <div><span class="label-tiny">Position</span><span>At Depth (Sys)</span></div>
+              <div><span class="label-tiny">Depth</span><span>0</span></div>
+              <div><span class="label-tiny">Order</span><span>900</span></div>
+            </div>
+          </div>
+          <!-- Nhóm 2 -->
+          <div class="group-rule-card" data-group="2">
+            <h4 class="group-2-text">Nhóm 2: Thế Giới Quan</h4>
+            <div class="rule-grid">
+              <div><span class="label-tiny">Strategy</span><span>Constant/Normal</span></div>
+              <div><span class="label-tiny">Position</span><span>At Depth (Sys)</span></div>
+              <div><span class="label-tiny">Depth</span><span>4</span></div>
+              <div><span class="label-tiny">Order</span><span>800</span></div>
+            </div>
+          </div>
+          <!-- Nhóm 3 -->
+          <div class="group-rule-card" data-group="3">
+            <h4 class="group-3-text">Nhóm 3: Nhân Vật</h4>
+            <div class="rule-grid">
+              <div><span class="label-tiny">Strategy</span><span>Normal</span></div>
+              <div><span class="label-tiny">Position</span><span>Before Char</span></div>
+              <div><span class="label-tiny">Depth</span><span>-</span></div>
+              <div><span class="label-tiny">Order</span><span>200</span></div>
+            </div>
+          </div>
+          <!-- Nhóm 4 -->
+          <div class="group-rule-card" data-group="4">
+            <h4 class="group-4-text">Nhóm 4: Phe Phái, Tổ Chức</h4>
+            <div class="rule-grid">
+              <div><span class="label-tiny">Strategy</span><span>Normal</span></div>
+              <div><span class="label-tiny">Position</span><span>Before Char</span></div>
+              <div><span class="label-tiny">Depth</span><span>-</span></div>
+              <div><span class="label-tiny">Order</span><span>150</span></div>
+            </div>
+          </div>
+          <!-- Nhóm 5 -->
+          <div class="group-rule-card" data-group="5">
+            <h4 class="group-5-text">Nhóm 5: Địa Điểm, Khu Vực</h4>
+            <div class="rule-grid">
+              <div><span class="label-tiny">Strategy</span><span>Normal</span></div>
+              <div><span class="label-tiny">Position</span><span>Before Char</span></div>
+              <div><span class="label-tiny">Depth</span><span>-</span></div>
+              <div><span class="label-tiny">Order</span><span>100</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+      
+      <div class="sidebar-footer">
+        <p>Made with ❤️ for ST Authors</p>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="main-workspace">
+      <!-- Top Bar / App Actions -->
+      <header class="workspace-header">
+        <div class="title-section">
+          <h1>Optimizer Workbench</h1>
+          <p class="description">Analyze your card's lorebook, detect incorrect depths/insertion orders, and align them automatically.</p>
+        </div>
+        <div class="header-actions">
+          <button id="btn-load-sample-card" class="btn btn-secondary">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Load Sample Card
+          </button>
+          <button id="btn-load-sample-lorebook" class="btn btn-secondary">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20F4 19.5L4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5z"/></svg>
+            Load Sample Lorebook
+          </button>
+        </div>
+      </header>
+
+      <!-- Dropzone -->
+      <section class="dropzone-section">
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="file-input" accept=".json" style="display: none;" />
+          <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+          </svg>
+          <div class="dropzone-text">
+            <h3>Drag & Drop SillyTavern JSON file here</h3>
+            <p>Accepts Character Cards (.json) and Standalone Lorebooks (.json)</p>
+          </div>
+          <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Browse Files</button>
+        </div>
+      </section>
+
+      <!-- Active File Overview Card -->
+      <section id="file-overview" class="file-overview-card hidden">
+        <div class="overview-header">
+          <div class="file-title-wrapper">
+            <span class="file-type-badge" id="file-type-badge">CARD V3</span>
+            <h2 id="loaded-file-name">Charcard V3 SillyTavern.json</h2>
+          </div>
+          <div class="overview-meta">
+            <span id="loaded-file-size">24.5 KB</span>
+            <span class="divider">|</span>
+            <span id="loaded-entries-count">9 entries found</span>
+          </div>
+        </div>
+        <p class="file-description" id="loaded-file-description">Đây là phần description của card.</p>
+        
+        <!-- Summary Stats Grid -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">Total Scan Status</span>
+            <span class="stat-val text-warning" id="stat-issues-count">Calculating...</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Group Distribution</span>
+            <div class="group-distribution" id="group-distribution">
+              <span class="dist-bar" style="width: 0%;" title="Nhóm 1"></span>
+              <span class="dist-bar" style="width: 0%;" title="Nhóm 2"></span>
+              <span class="dist-bar" style="width: 0%;" title="Nhóm 3"></span>
+              <span class="dist-bar" style="width: 0%;" title="Nhóm 4"></span>
+              <span class="dist-bar" style="width: 0%;" title="Nhóm 5"></span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">AI Analysis Progress</span>
+            <div class="ai-progress-container">
+              <div class="progress-bar-wrapper">
+                <div class="progress-bar-fill" id="ai-progress-bar" style="width: 0%"></div>
+              </div>
+              <span class="progress-text" id="ai-progress-text">Not Started</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Major Operations Button Bar -->
+        <div class="operations-bar">
+          <div class="operation-left">
+            <button id="btn-run-heuristic" class="btn btn-secondary" title="Analyze formatting rules using title and text rules locally">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              Fast Scan (Local Heuristic)
+            </button>
+            <button id="btn-run-ai" class="btn btn-primary btn-glow" title="Runs advanced classification using your Gemini API Key">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              AI Smart Scan & Classify
+            </button>
+          </div>
+          <div class="operation-right">
+            <button id="btn-fix-all" class="btn btn-success" disabled>
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Auto-Fix All
+            </button>
+            <button id="btn-download" class="btn btn-download-glow" disabled>
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              Export & Download Optimized File
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Logging console output for AI queries -->
+      <section id="console-logs" class="console-card hidden">
+        <div class="console-header">
+          <span>AI Engine Terminal Output</span>
+          <button id="btn-clear-logs" class="btn-text-tiny">Clear</button>
+        </div>
+        <div class="console-body" id="console-body">
+          <div class="log-line text-muted">Ready to run AI optimizer...</div>
+        </div>
+      </section>
+
+      <!-- Entry Listing Table Section -->
+      <section id="entries-section" class="entries-section hidden">
+        <div class="section-header">
+          <h2>Lorebook Entries</h2>
+          <div class="table-filters">
+            <button class="filter-tab active" data-filter="all">All (<span id="count-all">0</span>)</button>
+            <button class="filter-tab" data-filter="mismatched">Mismatched (<span id="count-mismatched" class="text-warning">0</span>)</button>
+            <button class="filter-tab" data-filter="correct">Aligned (<span id="count-correct" class="text-success">0</span>)</button>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="entries-table">
+            <thead>
+              <tr>
+                <th>Entry Title & Info</th>
+                <th>Content Preview</th>
+                <th>Current Config</th>
+                <th>AI Classification</th>
+                <th>Target Config</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="entries-table-body">
+              <!-- Dynamically populated rows -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Empty State -->
+      <div id="empty-state" class="empty-state">
+        <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+          <line x1="12" y1="8" x2="12" y2="16"/>
+        </svg>
+        <h3>No card or lorebook file loaded</h3>
+        <p>Upload a SillyTavern JSON file or load a sample to see it in action.</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal: Entry Details / Editor -->
+  <div class="modal" id="entry-modal">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-entry-title">Edit Entry</h3>
+        <button class="modal-close" id="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Comment / Identifier</label>
+          <input type="text" id="modal-comment" readonly class="input-readonly"/>
+        </div>
+        <div class="form-group">
+          <label>Keys</label>
+          <input type="text" id="modal-keys" readonly class="input-readonly"/>
+        </div>
+        <div class="form-group">
+          <label>Content Preview</label>
+          <textarea id="modal-content" readonly class="input-readonly" rows="6"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="modal-assigned-group">AI Class / Group Override</label>
+          <select id="modal-assigned-group">
+            <option value="">Unclassified</option>
+            <option value="1">Nhóm 1: Hệ Thống Sức Mạnh Cốt Lõi (Order 900)</option>
+            <option value="2">Nhóm 2: Thế Giới Quan & Quy Luật Tự Nhiên (Order 800)</option>
+            <option value="3">Nhóm 3: Nhân Vật (Order 200)</option>
+            <option value="4">Nhóm 4: Phe Phái, Tổ Chức & Tôn Giáo (Order 150)</option>
+            <option value="5">Nhóm 5: Địa Điểm & Khu Vực (Order 100)</option>
+          </select>
+        </div>
+        <div class="modal-explanation" id="modal-ai-explanation">
+          <strong>AI Analysis:</strong> No AI analysis run yet.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="modal-save-btn">Apply Override</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Script -->
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

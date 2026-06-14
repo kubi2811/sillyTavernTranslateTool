@@ -3,6 +3,19 @@ import fs from 'fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const FORMATTER_ROUTE = '/lorebook-formatter';
+const FORMATTER_DIR = path.resolve(__dirname, 'vendor', 'sillytavern-lorebook-formatter');
+
+const mimeFor = (file: string): string => {
+  const ext = path.extname(file).toLowerCase();
+  if (ext === '.html') return 'text/html; charset=utf-8';
+  if (ext === '.css') return 'text/css; charset=utf-8';
+  if (ext === '.js') return 'application/javascript; charset=utf-8';
+  if (ext === '.json') return 'application/json; charset=utf-8';
+  if (ext === '.svg') return 'image/svg+xml';
+  return 'application/octet-stream';
+};
+
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
 
@@ -22,6 +35,68 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [
         react(),
+        {
+          name: 'lorebook-formatter-static',
+          configureServer(server) {
+            server.middlewares.use((req, res, next) => {
+              if (!req.url) return next();
+              const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
+              const pathname = decodeURIComponent(urlObj.pathname);
+
+              if (pathname === FORMATTER_ROUTE) {
+                res.statusCode = 302;
+                res.setHeader('Location', `${FORMATTER_ROUTE}/`);
+                res.end();
+                return;
+              }
+
+              if (!pathname.startsWith(`${FORMATTER_ROUTE}/`)) return next();
+
+              const relPath = pathname.slice(`${FORMATTER_ROUTE}/`.length) || 'index.html';
+              const filePath = path.resolve(FORMATTER_DIR, relPath);
+              const safeRel = path.relative(FORMATTER_DIR, filePath);
+
+              if (safeRel.startsWith('..') || path.isAbsolute(safeRel)) {
+                res.statusCode = 403;
+                res.end('forbidden');
+                return;
+              }
+
+              if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+                res.statusCode = 404;
+                res.end('not found');
+                return;
+              }
+
+              try {
+                const normalizedRel = safeRel.replace(/\\/g, '/');
+
+                if (normalizedRel === 'index.html') {
+                  const html = fs.readFileSync(filePath, 'utf8')
+                    .replace('href="/index.css"', `href="${FORMATTER_ROUTE}/index.css"`)
+                    .replace('src="/app.js"', `src="${FORMATTER_ROUTE}/app.js"`);
+                  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                  res.end(html);
+                  return;
+                }
+
+                if (normalizedRel === 'app.js') {
+                  const js = fs.readFileSync(filePath, 'utf8')
+                    .replace(/fetch\((['"])\/samples\//g, `fetch($1${FORMATTER_ROUTE}/samples/`);
+                  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                  res.end(js);
+                  return;
+                }
+
+                res.setHeader('Content-Type', mimeFor(filePath));
+                res.end(fs.readFileSync(filePath));
+              } catch (e: any) {
+                res.statusCode = 500;
+                res.end(String(e?.message || e));
+              }
+            });
+          }
+        },
         {
           // Lưu/đọc settings + lorebook vào file JSON trong folder dự án (chỉ khi chạy `npm run dev`).
           name: 'tawa-file-storage',
