@@ -342,6 +342,26 @@ ${master}`;
                   <Sparkles size={13} className="text-indigo-400" /> Đa luồng & Model phụ (RPM)
                 </span>
 
+                {/* ── CHẾ ĐỘ MIX (song công 2 model) ── */}
+                <div className="bg-gradient-to-r from-indigo-950/50 to-purple-950/40 p-3 rounded-lg border border-indigo-500/30 space-y-1.5">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <div className="relative flex items-center">
+                      <input
+                        type="checkbox" className="peer sr-only"
+                        checked={formData.mixMode !== false}
+                        onChange={(e) => setFormData({ ...formData, mixMode: e.target.checked })}
+                      />
+                      <div className="w-11 h-6 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-indigo-500 peer-checked:to-purple-500"></div>
+                    </div>
+                    <span className="text-sm font-bold text-indigo-100 flex items-center gap-1.5">
+                      ⚡ Chế độ Mix <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-600/30 border border-emerald-500/40 text-emerald-200">~3× NHANH HƠN</span>
+                    </span>
+                  </label>
+                  <p className="text-[10.5px] text-slate-400 leading-relaxed pl-[3.7rem]">
+                    Khi sinh thế giới, chia việc cho <b>cả 2 model (Pro + Flash) chạy đồng thời</b> theo tỉ lệ RPM → cộng dồn tốc độ. Tắt đi nếu muốn chỉ dùng Model Chính (chất lượng đồng nhất hơn nhưng chậm hơn).
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
                     RPM Model Chính (Pro) — việc nặng: sinh entry chi tiết

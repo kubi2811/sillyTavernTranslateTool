@@ -19,7 +19,7 @@ import { DEFAULT_MASTER_INSTRUCTION } from './constants/masterInstruction';
 const DEFAULT_SETTINGS: OpenAISettings = {
   baseUrl: 'https://goldenglow.webn.cc/',
   apiKey: typeof process !== 'undefined' && process.env?.GEMINI_API_KEY ? process.env.GEMINI_API_KEY : '',
-  model: 'gemini-3.1-pro-preview-search',
+  model: 'gemini-3.1-pro-preview',
   contextSize: 2000000,
   maxTokens: 65000,
   temperature: 1.1,
@@ -31,10 +31,13 @@ const DEFAULT_SETTINGS: OpenAISettings = {
   minTokens: 4000,
   enableCompletenessProtocol: true,
   // Đa model + RPM: model chính (Pro) làm việc nặng, model phụ (Flash) việc ngắn.
+  // Default = đúng 2 model người dùng đang chạy → đưa code cho người khác chỉ cần nhập API key.
   enableSecondaryModel: true,
   secondaryModel: 'gemini-3-flash',
   primaryRpm: 5,
   secondaryRpm: 10,
+  // Chế độ Mix: bật sẵn → pipeline tự song công Pro + Flash (~3x nhanh hơn).
+  mixMode: true,
   // "Hướng dẫn tổng" mặc định = nội dung file Cấu hình Worldbook.txt (gộp 2 tab cũ thành 1 text bự).
   masterInstruction: DEFAULT_MASTER_INSTRUCTION,
 };
@@ -47,7 +50,17 @@ const DEFAULT_LOREBOOK: Lorebook = {
 
 const App: React.FC = () => {
   // --- State ---
-  const [lorebook, setLorebook] = useState<Lorebook>(DEFAULT_LOREBOOK);
+  // Khôi phục lorebook từ localStorage → reload/crash giữa lúc sinh KHÔNG mất công.
+  const [lorebook, setLorebook] = useState<Lorebook>(() => {
+    try {
+      const saved = localStorage.getItem('sillyLore_lorebook');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed.entries)) return parsed as Lorebook;
+      }
+    } catch { /* hỏng dữ liệu lưu → dùng mặc định */ }
+    return DEFAULT_LOREBOOK;
+  });
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
   const [settings, setSettings] = useState<OpenAISettings>(() => {
     const saved = localStorage.getItem('sillyLore_settings');
@@ -114,6 +127,16 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('sillyLore_settings', JSON.stringify(settings));
   }, [settings]);
+
+  // Tự lưu lorebook mỗi khi thay đổi (chống mất công khi reload/đóng tab giữa chừng).
+  useEffect(() => {
+    try {
+      localStorage.setItem('sillyLore_lorebook', JSON.stringify(lorebook));
+    } catch (e) {
+      // Vượt quota (lorebook quá lớn) → bỏ qua, không làm app crash.
+      console.warn('Không thể tự lưu lorebook (có thể vượt dung lượng localStorage):', e);
+    }
+  }, [lorebook]);
 
   // --- Handlers ---
 

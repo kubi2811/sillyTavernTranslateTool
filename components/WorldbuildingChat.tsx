@@ -269,7 +269,8 @@ YÊU CẦU:
         // Nút thắt thật là RPM (chỉ N request được START mỗi phút). Dùng đồng thời
         // 2 model = cộng dồn ngân sách RPM (vd 5 + 10 = 15) → nhanh hơn nhiều.
         // Chia theo TỈ LỆ RPM để 2 bên xong gần cùng lúc (Flash nhiều RPM ⇒ ôm nhiều mảnh hơn).
-        const useDual = !!(settings.enableSecondaryModel && settings.secondaryModel && settings.apiKey);
+        // Chế độ Mix (mặc định bật): song công Pro + Flash. Cần có model phụ + API key.
+        const useDual = !!(settings.mixMode !== false && settings.enableSecondaryModel && settings.secondaryModel && settings.apiKey);
         const secModel = settings.secondaryModel || '';
         const secRpm = settings.secondaryRpm || 10;
 

@@ -70,6 +70,7 @@ export interface OpenAISettings {
   secondaryModel?: string;        // Model PHỤ (vd: gemini-3-flash) cho phân loại/dịch tiêu đề ngắn
   primaryRpm?: number;            // Giới hạn RPM của model chính (vd: 5)
   secondaryRpm?: number;          // Giới hạn RPM của model phụ (vd: 10)
+  mixMode?: boolean;              // Chế độ Mix: pipeline chia việc cho CẢ Pro + Flash chạy đồng thời (tăng tốc ~3x). Mặc định bật.
   steps?: WorldbuildingStep[]; // Custom pipeline steps for AI instruction
   requireStepConfirmation?: boolean; // Xác nhận từng bước của AI trước khi đi tiếp
   aiPipelineMemory?: string; // Tóm tắt thâm sâu quy trình đã nạp của Tawa
