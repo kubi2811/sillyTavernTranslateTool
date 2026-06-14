@@ -520,7 +520,7 @@ const App: React.FC = () => {
         <div className="hidden lg:flex items-center justify-center flex-1 mx-4">
           <div className="flex items-center gap-2.5 px-3.5 py-1 bg-slate-900 border border-indigo-500/30 rounded-full select-none shadow-sm">
             <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
-            <span className="text-indigo-200 text-xs font-extrabold tracking-wider uppercase">3107 + SKY FIX</span>
+            <span className="text-indigo-200 text-xs font-extrabold tracking-wider uppercase">3107 + SKY</span>
             <span className="text-[9px] font-mono text-indigo-400 font-black tracking-normal ml-0.5 px-1.5 py-0.5 bg-indigo-950/40 border border-indigo-500/25 rounded uppercase">V4.0</span>
           </div>
         </div>
