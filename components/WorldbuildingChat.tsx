@@ -4,7 +4,7 @@ import { Lorebook, OpenAISettings, ChatMessage, WorldbuildingAction, Worldbuildi
 import { worldbuildingChat } from '../services/openai';
 import { runRateLimited } from '../utils/rateLimiter';
 import { Button } from './ui/Button';
-import { Send, Bot, User, Loader2, Sparkles, PlusCircle, Edit3, Trash2, Image as ImageIcon, X, CornerDownLeft, Dna, Layers, MessageSquare, FileText, Wand2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, PlusCircle, Edit3, Trash2, Image as ImageIcon, X, CornerDownLeft, Dna, Layers, MessageSquare, FileText, Wand2, ChevronLeft, ChevronRight, Clock, Cpu, Activity } from 'lucide-react';
 
 interface WorldbuildingChatProps {
   lorebook: Lorebook;
@@ -78,6 +78,12 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
   const [pipelineWaitingConfirmation, setPipelineWaitingConfirmation] = useState(false);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const pipelineApprovalResolverRef = useRef<((action: 'approve' | 'retry') => void) | null>(null);
+
+  // --- Trực quan hóa tiến trình thời gian thực (timer + luồng đang chạy + model) ---
+  const [pipelineStartTime, setPipelineStartTime] = useState<number | null>(null);
+  const [pipelineElapsed, setPipelineElapsed] = useState(0); // giây
+  // chunkStats: tiến độ TRONG 1 bước — done/total mảnh, số luồng đang chạy, model nào.
+  const [chunkStats, setChunkStats] = useState<{ done: number; total: number; running: number; model: string }>({ done: 0, total: 0, running: 0, model: '' });
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -130,6 +136,27 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
       pipelineRef.current = false;
     };
   }, []);
+
+  // Bộ đếm thời gian: tick mỗi giây khi pipeline đang chạy.
+  useEffect(() => {
+    if (!pipelineRunning || !pipelineStartTime) return;
+    const id = setInterval(() => {
+      setPipelineElapsed(Math.floor((Date.now() - pipelineStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [pipelineRunning, pipelineStartTime]);
+
+  // Danh sách bước đang bật (dùng chung cho render console tiến trình).
+  const enabledStepList = (settings.steps && settings.steps.length > 0 ? settings.steps : DEFAULT_WORLDBUILDING_STEPS).filter(s => s.enabled);
+  const enabledStepCount = enabledStepList.length;
+
+  // mm:ss
+  const fmtElapsed = (sec: number) => {
+    const m = Math.floor(sec / 60).toString().padStart(2, '0');
+    const s = (sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
   const runPipeline = async (attachedDoc: { name: string; content: string }) => {
     const rawSteps = settings.steps && settings.steps.length > 0
       ? settings.steps
@@ -142,6 +169,9 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
 
     setPipelineRunning(true);
     setPipelineCurrentStepIndex(0);
+    setPipelineStartTime(Date.now());
+    setPipelineElapsed(0);
+    setChunkStats({ done: 0, total: 0, running: 0, model: '' });
     setPipelineLogs([`[Hệ thống] Khởi động động cơ tri thức. Chạy ${enabledSteps.length} bước hướng dẫn AI tự động...`]);
     setPipelineError(null);
     setPipelineWaitingConfirmation(false);
@@ -177,6 +207,9 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
         const priorNames = currentLorebookState.entries
           .map(e => e.comment).filter(Boolean).slice(-150).join(', ');
 
+        // Reset bộ đếm mảnh cho bước này → progress bar phụ + badge luồng cập nhật ngay.
+        setChunkStats({ done: 0, total: chunks.length, running: 0, model: primaryModel });
+
         setPipelineLogs(prev => [...prev, `[Hệ thống] Bước ${i + 1}: ${chunks.length} phân mảnh • chạy song song theo RPM=${primaryRpm} (model chính: ${primaryModel})`]);
 
         const masterGuide = (settings.masterInstruction || '').trim();
@@ -202,8 +235,12 @@ YÊU CẦU:
 2. Nếu phân mảnh không có dữ liệu phù hợp, trả "actions": [].
 3. Luôn đặt "status": "DONE" (mỗi phân mảnh xử lý gọn trong 1 lượt).`;
 
-        const stepTasks = chunks.map((chunk, ci) => async () => {
-          if (!pipelineRef.current) return { actions: [] as WorldbuildingAction[], failed: false };
+        // Factory: 1 task mổ xẻ 1 mảnh bằng MODEL chỉ định (Pro hoặc Flash).
+        type ChunkResult = { actions: WorldbuildingAction[]; failed: boolean; error: string };
+        const makeTask = (chunk: string, ci: number, model: string) => async (): Promise<ChunkResult> => {
+          if (!pipelineRef.current) return { actions: [], failed: false, error: '' };
+          // +1 luồng đang chạy (badge "đang chạy N luồng" cập nhật ngay khi mảnh khởi động)
+          setChunkStats(p => ({ ...p, running: p.running + 1 }));
           try {
             const resp = await worldbuildingChat(
               buildChunkPrompt(chunk, ci),
@@ -214,19 +251,55 @@ YÊU CẦU:
               undefined,
               settings.minTokens || 4000,
               'evolution',
-              primaryModel
+              model
             );
             const acts = (resp?.actions || []).filter((a: any) => a && a.type === 'create' && a.data) as WorldbuildingAction[];
             return { actions: acts, failed: false, error: '' };
           } catch (e: any) {
-            // Giữ lại lý do lỗi thật để báo cho người dùng (không nuốt im lặng)
             const msg = String(e?.message || e || 'Lỗi không xác định');
-            console.error(`[Pipeline] Bước ${i + 1} • mảnh ${ci + 1} lỗi API:`, e);
-            return { actions: [] as WorldbuildingAction[], failed: true, error: msg };
+            console.error(`[Pipeline] Bước ${i + 1} • mảnh ${ci + 1} (${model}) lỗi API:`, e);
+            return { actions: [], failed: true, error: msg };
+          } finally {
+            // -1 luồng, +1 mảnh xong → progress bar phụ tiến lên ngay cả khi mảnh đó rỗng.
+            setChunkStats(p => ({ ...p, running: Math.max(0, p.running - 1), done: p.done + 1 }));
           }
-        });
+        };
 
-        const settledChunks = await runRateLimited(stepTasks, { key: primaryModel, rpm: primaryRpm });
+        // ─── TĂNG TỐC: chia mảnh cho CẢ Pro + Flash chạy đồng thời ───
+        // Nút thắt thật là RPM (chỉ N request được START mỗi phút). Dùng đồng thời
+        // 2 model = cộng dồn ngân sách RPM (vd 5 + 10 = 15) → nhanh hơn nhiều.
+        // Chia theo TỈ LỆ RPM để 2 bên xong gần cùng lúc (Flash nhiều RPM ⇒ ôm nhiều mảnh hơn).
+        const useDual = !!(settings.enableSecondaryModel && settings.secondaryModel && settings.apiKey);
+        const secModel = settings.secondaryModel || '';
+        const secRpm = settings.secondaryRpm || 10;
+
+        let settledChunks: PromiseSettledResult<ChunkResult>[];
+        if (useDual && chunks.length > 1) {
+          const proIdx: number[] = [];
+          const flashIdx: number[] = [];
+          let proLoad = 0, flashLoad = 0;
+          chunks.forEach((_, ci) => {
+            // Gán mảnh cho pool nào "rảnh" hơn tương đối với RPM của nó.
+            if ((proLoad + 1) / primaryRpm <= (flashLoad + 1) / secRpm) { proIdx.push(ci); proLoad++; }
+            else { flashIdx.push(ci); flashLoad++; }
+          });
+          setChunkStats({ done: 0, total: chunks.length, running: 0, model: `${primaryModel} + ${secModel}` });
+          setPipelineLogs(prev => [...prev, `[Tăng tốc] Song công 2 model: Pro ôm ${proIdx.length} mảnh (RPM ${primaryRpm}), Flash ôm ${flashIdx.length} mảnh (RPM ${secRpm}).`]);
+
+          const proTasks = proIdx.map(ci => makeTask(chunks[ci], ci, primaryModel));
+          const flashTasks = flashIdx.map(ci => makeTask(chunks[ci], ci, secModel));
+          const [proRes, flashRes] = await Promise.all([
+            runRateLimited(proTasks, { key: primaryModel, rpm: primaryRpm }),
+            runRateLimited(flashTasks, { key: secModel, rpm: secRpm }),
+          ]);
+          // Ghép kết quả về đúng thứ tự mảnh gốc.
+          settledChunks = new Array(chunks.length);
+          proIdx.forEach((ci, k) => { settledChunks[ci] = proRes[k]; });
+          flashIdx.forEach((ci, k) => { settledChunks[ci] = flashRes[k]; });
+        } else {
+          const stepTasks = chunks.map((chunk, ci) => makeTask(chunk, ci, primaryModel));
+          settledChunks = await runRateLimited(stepTasks, { key: primaryModel, rpm: primaryRpm });
+        }
         if (!pipelineRef.current) break;
 
         // Gộp TUẦN TỰ (tránh race) + chống trùng theo comment, rồi áp dụng 1 lần.
@@ -767,35 +840,82 @@ YÊU CẦU:
                 <div className="flex items-center gap-2">
                   <Loader2 size={14} className="animate-spin text-indigo-400" />
                   <span className="text-[11px] font-mono font-bold text-indigo-300 uppercase tracking-widest animate-pulse">
-                    TIẾN TRÌNH: BƯỚC {pipelineCurrentStepIndex + 1}/{(settings.steps && settings.steps.length > 0 ? settings.steps : DEFAULT_WORLDBUILDING_STEPS).filter(s => s.enabled).length}
+                    TIẾN TRÌNH: BƯỚC {pipelineCurrentStepIndex + 1}/{enabledStepCount}
                   </span>
                 </div>
-                <button 
-                  onClick={handleStopPipeline}
-                  className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-red-950 border border-red-500/20 hover:bg-red-900/50 text-red-300 transition-all font-semibold"
-                >
-                  TẠM DỪNG QUY TRÌNH
-                </button>
+                <div className="flex items-center gap-2.5">
+                  {/* Bộ đếm thời gian đã chạy */}
+                  <span className="text-[10px] font-mono font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-500/25 px-2 py-1 rounded-lg flex items-center gap-1 tabular-nums">
+                    <Clock size={11} /> {fmtElapsed(pipelineElapsed)}
+                  </span>
+                  <button
+                    onClick={handleStopPipeline}
+                    className="text-[10px] font-mono px-2.5 py-1 rounded-lg bg-red-950 border border-red-500/20 hover:bg-red-900/50 text-red-300 transition-all font-semibold"
+                  >
+                    TẠM DỪNG QUY TRÌNH
+                  </button>
+                </div>
               </div>
 
               <div className="p-4 space-y-3">
-                <div className="space-y-1">
+                {(() => {
+                  // % tổng = (số bước xong + tỉ lệ mảnh của bước hiện tại) / tổng bước
+                  const chunkFrac = chunkStats.total > 0 ? chunkStats.done / chunkStats.total : 0;
+                  const overall = enabledStepCount > 0
+                    ? Math.min(100, Math.round(((pipelineCurrentStepIndex + chunkFrac) / enabledStepCount) * 100))
+                    : 0;
+                  const chunkPct = chunkStats.total > 0 ? Math.round((chunkStats.done / chunkStats.total) * 100) : 0;
+                  return (
+                <div className="space-y-2.5">
                   <div className="flex justify-between items-end">
                     <h4 className="text-xs font-bold text-slate-100 font-mono">
-                      Nhiệm vụ: {(settings.steps && settings.steps.length > 0 ? settings.steps : DEFAULT_WORLDBUILDING_STEPS).filter(s => s.enabled)[pipelineCurrentStepIndex]?.name}
+                      Nhiệm vụ: {enabledStepList[pipelineCurrentStepIndex]?.name}
                     </h4>
-                    <span className="text-[10px] font-mono font-semibold text-slate-400">
-                      {Math.round(((pipelineCurrentStepIndex) / (settings.steps && settings.steps.length > 0 ? settings.steps : DEFAULT_WORLDBUILDING_STEPS).filter(s => s.enabled).length) * 100)}%
+                    <span className="text-[11px] font-mono font-bold text-indigo-300 tabular-nums">
+                      {overall}%
                     </span>
                   </div>
-                  
+
+                  {/* Thanh tiến trình TỔNG (mượt theo mảnh, không nhảy cục) */}
                   <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div 
+                    <div
                       className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-500 rounded-full"
-                      style={{ width: `${((pipelineCurrentStepIndex + 1) / (settings.steps && settings.steps.length > 0 ? settings.steps : DEFAULT_WORLDBUILDING_STEPS).filter(s => s.enabled).length) * 105}%` }}
+                      style={{ width: `${overall}%` }}
                     />
                   </div>
+
+                  {/* Badge LIVE: model đang gọi + số luồng song song đang chạy + mảnh done/total */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[9.5px] font-mono font-bold text-violet-200 bg-violet-950/50 border border-violet-500/30 px-2 py-1 rounded-md flex items-center gap-1">
+                      <Cpu size={11} className="text-violet-400" /> {chunkStats.model || settings.model}
+                    </span>
+                    <span className="text-[9.5px] font-mono font-bold text-amber-200 bg-amber-950/40 border border-amber-500/30 px-2 py-1 rounded-md flex items-center gap-1">
+                      <Activity size={11} className={chunkStats.running > 0 ? 'text-amber-400 animate-pulse' : 'text-slate-500'} />
+                      {chunkStats.running} luồng song song
+                    </span>
+                    <span className="text-[9.5px] font-mono font-bold text-sky-200 bg-sky-950/40 border border-sky-500/30 px-2 py-1 rounded-md flex items-center gap-1">
+                      <Layers size={11} className="text-sky-400" /> {chunkStats.done}/{chunkStats.total} mảnh
+                    </span>
+                  </div>
+
+                  {/* Thanh tiến trình MẢNH của riêng bước hiện tại */}
+                  {chunkStats.total > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8.5px] font-mono uppercase tracking-wider text-slate-500">
+                        <span>Mổ xẻ mảnh bước {pipelineCurrentStepIndex + 1}</span>
+                        <span className="tabular-nums">{chunkPct}%</span>
+                      </div>
+                      <div className="h-1.5 bg-slate-800/70 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-300 rounded-full"
+                          style={{ width: `${chunkPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
+                  );
+                })()}
 
                 {streamBuffer && (
                   <div className="p-3 rounded-lg bg-indigo-950/20 border border-indigo-500/10 max-h-[140px] overflow-y-auto custom-scrollbar">
