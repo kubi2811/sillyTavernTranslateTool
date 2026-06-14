@@ -69,11 +69,13 @@ let activeFile = {
 
 let currentFilter = 'all';
 let editingEntryUid = null;
+let currentRuleSource = 'worldbook2-default';
 
 // Default target rules imported from "Cấu hình Worldbook 2.txt".
 const DEFAULT_GROUP_RULES = {
   1: {
     name: 'Thế giới quan & Tổng cương',
+    description: 'Tổng cương thế giới, lịch sử vĩ mô, luật nền, quy tắc xã hội, chủng tộc, tôn giáo, hệ thống sức mạnh cấp nền tảng.',
     strategyName: 'Constant',
     constant: true,
     positionName: 'Before Character',
@@ -83,6 +85,7 @@ const DEFAULT_GROUP_RULES = {
   },
   2: {
     name: 'Xem lướt nhân vật & thế lực',
+    description: 'Mục overview/list giúp AI luôn biết thế giới có những ai, phe nào, tổ chức nào, quan hệ tổng quan ra sao.',
     strategyName: 'Constant',
     constant: true,
     positionName: 'Before Character',
@@ -92,6 +95,7 @@ const DEFAULT_GROUP_RULES = {
   },
   3: {
     name: 'Chi tiết nhân vật cốt lõi',
+    description: 'Hồ sơ đầy đủ của nhân vật chính/cốt lõi: ngoại hình, tính cách, tiểu sử, năng lực, quan hệ, thói quen.',
     strategyName: 'Selective',
     constant: false,
     positionName: 'After Character',
@@ -101,6 +105,7 @@ const DEFAULT_GROUP_RULES = {
   },
   4: {
     name: 'Cảnh vật & Chi tiết sự kiện',
+    description: 'Địa điểm, cảnh vật, phòng ốc, khu vực cụ thể, bối cảnh nhỏ, sự kiện hoặc tình huống được tải theo nhu cầu.',
     strategyName: 'Selective',
     constant: false,
     positionName: 'After Character',
@@ -110,6 +115,7 @@ const DEFAULT_GROUP_RULES = {
   },
   5: {
     name: 'Tài liệu NPC',
+    description: 'NPC, vai phụ, nhân vật nền, tài liệu phụ trợ hoặc bộ điều khiển tải theo nhu cầu.',
     strategyName: 'Selective',
     constant: false,
     positionName: 'After Character',
@@ -150,6 +156,11 @@ function renderRuleCards() {
     const title = card.querySelector('h4');
     if (title) title.textContent = `Nhóm ${group}: ${rule.name}`;
 
+    const option = modalAssignedGroup?.querySelector(`option[value="${group}"]`);
+    if (option) {
+      option.textContent = `Nhóm ${group}: ${rule.name} (Order ${getRuleOrder(rule)})`;
+    }
+
     const values = [
       rule.strategyName || (rule.constant ? 'Constant' : 'Selective'),
       rule.positionName,
@@ -177,6 +188,7 @@ function updateActiveEntriesAfterRuleChange() {
 }
 
 function saveCurrentRules(sourceName) {
+  currentRuleSource = sourceName;
   localStorage.setItem('st_opt_rule_preset', sourceName);
   localStorage.setItem('st_opt_rule_source_name', sourceName);
   localStorage.setItem('st_opt_group_rules', JSON.stringify(GROUP_RULES));
@@ -190,6 +202,7 @@ function loadStoredRules() {
     const parsed = JSON.parse(savedRules);
     if (parsed && parsed[1] && parsed[5]) {
       GROUP_RULES = parsed;
+      currentRuleSource = localStorage.getItem('st_opt_rule_source_name') || 'custom';
     }
   } catch {
     localStorage.removeItem('st_opt_group_rules');
@@ -249,31 +262,98 @@ function extractRulePosition(section, fallbackPosition) {
   if (!section) return fallbackPosition;
   const normalized = normalizeRuleText(section.body);
 
+  if (normalized.includes('at depth') || normalized.includes('role: system') || normalized.includes('bánh răng') || normalized.includes('banh rang')) {
+    return 'at_depth_system';
+  }
   if (normalized.includes('truoc dinh nghia nhan vat') || normalized.includes('before')) return 'before_char';
   if (normalized.includes('sau dinh nghia nhan vat') || normalized.includes('after')) return 'after_char';
   return fallbackPosition;
+}
+
+function extractRuleDepth(section, fallbackDepth, position) {
+  if (!section) return fallbackDepth;
+  const normalized = normalizeRuleText(section.body);
+  const match = normalized.match(/depth\s*:\s*(\d+)|do sau\s*:\s*(\d+)/);
+  const value = match ? Number(match[1] || match[2]) : NaN;
+  if (Number.isFinite(value)) return value;
+  if (position === 'at_depth_system') return 0;
+  return fallbackDepth;
 }
 
 function setRuleTarget(group, sourceRule, section) {
   const constant = extractRuleConstant(section, sourceRule.constant);
   const position = extractRulePosition(section, sourceRule.card.position);
   const order = extractRuleOrder(section, getRuleOrder(sourceRule), group);
-  const depth = position === 'before_char' ? 4 : (constant ? 4 : 2);
-  const extPosition = position === 'before_char' ? 0 : 1;
-  const lorebookPosition = position === 'before_char' ? 0 : 1;
+  const fallbackDepth = position === 'before_char' ? 4 : (constant ? 4 : 2);
+  const depth = extractRuleDepth(section, fallbackDepth, position);
+  const extPosition = position === 'at_depth_system' ? 4 : (position === 'before_char' ? 0 : 1);
+  const lorebookPosition = position === 'at_depth_system' ? 4 : (position === 'before_char' ? 0 : 1);
+  const role = position === 'at_depth_system' ? 0 : null;
+  const descriptionMatch = section?.body.match(/Description\s*:\s*"([^"]+)"/i);
+  const description = descriptionMatch?.[1] || sourceRule.description;
 
   return {
     ...sourceRule,
+    description,
     strategyName: constant ? 'Constant' : 'Selective',
     constant,
-    positionName: position === 'before_char' ? 'Before Character' : 'After Character',
+    positionName: position === 'at_depth_system' ? '@D System' : (position === 'before_char' ? 'Before Character' : 'After Character'),
     defaultOrder: order,
-    card: { position, extPosition, depth, role: null, order },
-    lorebook: { position: lorebookPosition, depth, role: null, order }
+    card: {
+      position: position === 'at_depth_system' ? 'after_char' : position,
+      extPosition,
+      depth,
+      role,
+      order
+    },
+    lorebook: { position: lorebookPosition, depth, role, order }
   };
 }
 
+function splitYamlStyleRuleSections(text) {
+  const matches = [...text.matchAll(/^\s*Group_(\d+)_[A-Za-z0-9_]*:\s*$/gm)];
+  return matches.map((match, index) => {
+    const start = match.index + match[0].length;
+    const end = matches[index + 1]?.index ?? text.length;
+    return {
+      group: Number(match[1]),
+      title: match[0].trim().replace(/:$/, ''),
+      body: text.slice(start, end)
+    };
+  });
+}
+
+function parseYamlStyleRulesFromText(text) {
+  const sections = splitYamlStyleRuleSections(text);
+  if (sections.length === 0) return { rules: null, matched: 0 };
+
+  const rules = cloneDefaultRules();
+  let matched = 0;
+
+  sections.forEach(section => {
+    if (!section.group || section.group < 1 || section.group > 5) return;
+    rules[section.group] = setRuleTarget(section.group, rules[section.group], section);
+
+    const description = rules[section.group].description || '';
+    const firstSentence = description.split(/[.!?。]/)[0]?.trim();
+    if (firstSentence) {
+      rules[section.group].name = firstSentence.length > 56
+        ? `${firstSentence.slice(0, 53)}...`
+        : firstSentence;
+    }
+
+    matched++;
+  });
+
+  return { rules, matched };
+}
+
 function parseTargetRulesFromText(text) {
+  const yamlResult = parseYamlStyleRulesFromText(text);
+  if (yamlResult.rules && yamlResult.matched > 0) {
+    return yamlResult;
+  }
+
   const sections = splitRuleSections(text);
   const rules = cloneDefaultRules();
   let matched = 0;
@@ -344,6 +424,38 @@ function importRuleTextFile(file) {
 
 function openRuleFilePicker() {
   ruleFileInput?.click();
+}
+
+function buildAiGroupGuide() {
+  return Object.keys(GROUP_RULES).map(groupKey => {
+    const group = Number(groupKey);
+    const rule = GROUP_RULES[group];
+    const strategy = rule.constant
+      ? 'constant true, selective false'
+      : 'constant false, selective true';
+
+    return `### Nhóm ${group}: ${rule.name} (Group ${group})
+- ${rule.description || 'Không có mô tả riêng.'}
+- Cấu hình mục tiêu: ${rule.positionName}, order ${getRuleOrder(rule)}, ${strategy}, depth ${getRuleDepth(rule)}.`;
+  }).join('\n\n');
+}
+
+function scoreRuleTextAgainstEntry(rule, normalizedEntryText) {
+  const stopWords = new Set([
+    'nhom', 'group', 'description', 'strategy', 'position', 'depth', 'order',
+    'constant', 'normal', 'selective', 'true', 'false', 'trong', 'duoi',
+    'chua', 'thiet', 'lap', 'muc', 'entry', 'worldbook', 'role'
+  ]);
+  const raw = normalizeRuleText(`${rule.name || ''} ${rule.description || ''}`);
+  const tokens = raw.match(/[a-z0-9_]{4,}/g) || [];
+  const uniqueTokens = [...new Set(tokens)].filter(token => !stopWords.has(token));
+  let score = 0;
+
+  uniqueTokens.forEach(token => {
+    if (normalizedEntryText.includes(token)) score += 1;
+  });
+
+  return score;
 }
 
 // Function to update placeholder dynamically
@@ -927,6 +1039,7 @@ btnRunHeuristic.addEventListener('click', () => {
 
 function runLocalHeuristicOnEntry(entry) {
   const textToAnalyze = `${entry.comment} ${entry.keys.join(' ')} ${entry.content}`.toLowerCase();
+  const normalizedTextToAnalyze = normalizeRuleText(textToAnalyze);
   
   // Nhóm 1: Thế giới quan, tổng cương, luật nền, hệ thống sức mạnh cấp vĩ mô.
   const g1Keywords = ['thế giới quan', 'the gioi quan', 'tổng cương', 'tong cuong', 'bối cảnh thế giới', 'boi canh the gioi', 'lịch sử thế giới', 'lich su the gioi', 'quy luật', 'quy luat', 'định luật', 'dinh luat', 'hệ thống sức mạnh', 'he thong suc manh', 'ma pháp', 'ma phap', 'tu luyện', 'tu luyen', 'cảnh giới', 'canh gioi', 'chủng tộc', 'chung toc', 'tôn giáo', 'ton giao'];
@@ -951,6 +1064,10 @@ function runLocalHeuristicOnEntry(entry) {
   g3Keywords.forEach(k => { if (textToAnalyze.includes(k)) scores[3] += 2; });
   g4Keywords.forEach(k => { if (textToAnalyze.includes(k)) scores[4] += 2; });
   g5Keywords.forEach(k => { if (textToAnalyze.includes(k)) scores[5] += 2; });
+
+  for (let group = 1; group <= 5; group++) {
+    scores[group] += scoreRuleTextAgainstEntry(GROUP_RULES[group], normalizedTextToAnalyze);
+  }
 
   // Add regex matches for specific comments
   if (entry.comment.toLowerCase().includes('thế giới') || entry.comment.toLowerCase().includes('tổng cương') || entry.comment.toLowerCase().includes('world')) scores[1] += 5;
@@ -1095,30 +1212,7 @@ async function classifyBatchWithAi(batch, provider, model, apiKey) {
 Bạn là một trợ lý AI chuyên nghiệp phân loại thông tin thế giới (World Info / Lorebook) của SillyTavern.
 Hãy đọc danh sách các mục nhập dưới đây và xếp chúng vào 1 trong 5 nhóm tương ứng theo hướng dẫn tuyệt đối sau:
 
-### Nhóm 1: Thế giới quan & Tổng cương (Group 1)
-- Tổng cương thế giới, lịch sử vĩ mô, luật nền, quy tắc xã hội, chủng tộc, tôn giáo, hệ thống sức mạnh cấp nền tảng.
-- Cấu hình mục tiêu: before_char, order 1, constant true, selective false, depth 4.
-- Ví dụ: Tổng cương đại lục, lịch sử lập quốc, luật ma pháp, hệ thống cảnh giới, quy tắc xã hội.
-
-### Nhóm 2: Xem lướt nhân vật & thế lực (Group 2)
-- Mục overview/list giúp AI luôn biết thế giới có những ai, phe nào, tổ chức nào, quan hệ tổng quan ra sao.
-- Cấu hình mục tiêu: before_char, order 4, constant true, selective false, depth 4.
-- Ví dụ: Danh sách nhân vật chính, sơ đồ phe phái, tổng quan tổ chức và quan hệ.
-
-### Nhóm 3: Chi tiết nhân vật cốt lõi (Group 3)
-- Hồ sơ đầy đủ của nhân vật chính/cốt lõi: ngoại hình, tính cách, tiểu sử, năng lực, quan hệ, thói quen.
-- Cấu hình mục tiêu: after_char, order 99, constant false, selective true, depth 2.
-- Ví dụ: Hồ sơ chi tiết Han Isratte, ngoại hình/tính cách/kỹ năng của nhân vật cốt lõi.
-
-### Nhóm 4: Cảnh vật & Chi tiết sự kiện (Group 4)
-- Địa điểm, cảnh vật, phòng ốc, khu vực cụ thể, bối cảnh nhỏ, sự kiện hoặc tình huống được tải theo nhu cầu.
-- Cấu hình mục tiêu: after_char, order 80, constant false, selective true, depth 2.
-- Ví dụ: Cung điện, phòng học, trận chiến, sự kiện quá khứ, khu vực cần mô tả khi được nhắc đến.
-
-### Nhóm 5: Tài liệu NPC (Group 5)
-- NPC, vai phụ, nhân vật nền, tài liệu phụ trợ hoặc bộ điều khiển tải theo nhu cầu.
-- Cấu hình mục tiêu: after_char, order 100, constant false, selective true, depth 2.
-- Ví dụ: Hồ sơ NPC, người hầu, giáo viên, nhân viên, vai phụ xuất hiện khi được nhắc đến.
+${buildAiGroupGuide()}
 
 MỤC TIÊU PHÂN LOẠI:
 Phân tích kỹ lưỡng nội dung và từ khóa của từng mục dưới đây, trả về một mảng JSON chứa kết quả phân loại cho từng mục nhập.
