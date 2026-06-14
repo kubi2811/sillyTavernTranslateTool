@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Dữ liệu người dùng lưu ra đĩa (settings/lorebook) khi chạy local
+tawa-data/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Lorebook, LorebookEntry, OpenAISettings, WorldbuildingAction, ChatMessage, WorldbuildingStep } from './types';
 import { LorebookList } from './components/LorebookList';
 import { EntryEditor } from './components/EntryEditor';
@@ -15,6 +15,7 @@ import { Download, Upload, Settings, BookOpen, MessageSquare, Edit, Languages, H
 import { getOptimizedEntrySettings } from './utils/optimize';
 import { optimizeEntireLorebook } from './services/openai';
 import { DEFAULT_MASTER_INSTRUCTION } from './constants/masterInstruction';
+import { loadLocal, saveLocal, readDisk, getStorageDir, getLocalStorageUsage } from './utils/storage';
 
 const DEFAULT_SETTINGS: OpenAISettings = {
   baseUrl: 'https://goldenglow.webn.cc/',
@@ -38,6 +39,8 @@ const DEFAULT_SETTINGS: OpenAISettings = {
   secondaryRpm: 10,
   // Chế độ Mix: bật sẵn → pipeline tự song công Pro + Flash (~3x nhanh hơn).
   mixMode: true,
+  // Super Mix: mặc định TẮT (chỉ bật khi cần tốc độ tối đa, chấp nhận phân loại thô hơn).
+  superMix: false,
   // "Hướng dẫn tổng" mặc định = nội dung file Cấu hình Worldbook.txt (gộp 2 tab cũ thành 1 text bự).
   masterInstruction: DEFAULT_MASTER_INSTRUCTION,
 };
@@ -47,6 +50,38 @@ const DEFAULT_LOREBOOK: Lorebook = {
   description: '',
   entries: []
 };
+
+// Gộp settings đã lưu với mặc định + áp migration (Hướng dẫn tổng, aiPrompts, apiKey từ env).
+// Dùng chung cho cả init lúc khởi động lẫn hydrate từ file đĩa.
+function buildSettings(parsed: any): OpenAISettings {
+  const merged: OpenAISettings = { ...DEFAULT_SETTINGS, ...(parsed || {}) };
+  if (!merged.masterInstruction || !merged.masterInstruction.trim()) {
+    merged.masterInstruction = DEFAULT_MASTER_INSTRUCTION;
+  }
+  if (!merged.aiPrompts || merged.aiPrompts.length === 0) {
+    merged.aiPrompts = [
+      {
+        id: 'prompt_1',
+        title: 'PROMPT 1: THẾ GIỚI QUAN',
+        content: `[THẾ GIỚI QUAN - HƯỚNG DẪN AI]\n- Đóng vai trò là Sử Gia Vũ Trụ. Khi nhận tài liệu bối cảnh, hãy trích xuất toàn bộ lịch sử lập quốc, tôn giáo, chủng tộc cổ xưa và quy luật sinh thái học.\n- Thiết lập các entry ở vị trí before_char, order 1 (hoặc 1-3) dưới dạng thường trú (constant: true, selective: false), scan_depth: 4, bật prevent_recursion: true và non_recursable: true.\n- Định dạng xuất ra bắt buộc phải theo chuẩn WORLD_TEMPLATE.\n- Đảm bảo độ sâu chi tiết tối đa, mô tả rõ ràng các mối quan hệ địa lý và xung đột chủng tộc vĩ mô.`
+      },
+      {
+        id: 'prompt_2',
+        title: 'PROMPT 2: HỆ THỐNG',
+        content: `[HỆ THỐNG SỨC MẠNH & LUẬT VẬT LÝ]\n- Đóng vai trò là Đại Pháp Sư / Chuyên Gia Thiết Kế Game. Trích xuất toàn bộ hệ thống cấp bậc sức mạnh, các định luật ma pháp, thuộc tính vật lý, các cấm kỹ và quy tắc tu luyện.\n- Thiết lập các entry ở vị trí before_char, order 2 (hoặc 1-3) dưới dạng thường trú (constant: true, selective: false), scan_depth: 4, bật prevent_recursion: true và non_recursable: true.\n- Mô tả cực kỳ logic, tránh mơ hồ và mâu thuẫn.`
+      },
+      {
+        id: 'prompt_3',
+        title: 'PROMPT 3: NHÂN VẬT',
+        content: `[HỒ SƠ NHÂN VẬT CHI TIẾT - CHARACTER SCAN]\n- Đóng vai trò là Nhà Tâm Lý Học và Nhà Biên Kịch. Trích xuất chân dung, tính cách, thói quen sinh hoạt, tiểu sử và mối quan hệ xã hội của từng nhân vật hoặc sinh vật xuất hiện trong tài liệu.\n- Thiết lập các entry ở vị trí after_char, order 99 dưới dạng kích hoạt từ khóa (constant: false, selective: true), scan_depth: 2, bật prevent_recursion: true và non_recursable: true.\n- Định dạng xuất ra bắt buộc tuân thủ CHARACTER_TEMPLATE tuyệt đối, bao gồm cả mô tả ngoại hình bạch miêu và thuộc tính NSFW (nếu bật).\n- Đảm bảo độ dài và sự sống động, giúp nhân vật như đang "thở" trên từng trang giấy.`
+      }
+    ];
+  }
+  if (!merged.apiKey && typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) {
+    merged.apiKey = process.env.GEMINI_API_KEY;
+  }
+  return merged;
+}
 
 const App: React.FC = () => {
   // --- State ---
@@ -62,38 +97,7 @@ const App: React.FC = () => {
     return DEFAULT_LOREBOOK;
   });
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
-  const [settings, setSettings] = useState<OpenAISettings>(() => {
-    const saved = localStorage.getItem('sillyLore_settings');
-    const parsed = saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
-    const merged = { ...DEFAULT_SETTINGS, ...parsed };
-    // Migration: bản lưu cũ chưa có "Hướng dẫn tổng" → nạp nội dung mặc định.
-    if (!merged.masterInstruction || !merged.masterInstruction.trim()) {
-      merged.masterInstruction = DEFAULT_MASTER_INSTRUCTION;
-    }
-    if (!merged.aiPrompts || merged.aiPrompts.length === 0) {
-      merged.aiPrompts = [
-        {
-          id: 'prompt_1',
-          title: 'PROMPT 1: THẾ GIỚI QUAN',
-          content: `[THẾ GIỚI QUAN - HƯỚNG DẪN AI]\n- Đóng vai trò là Sử Gia Vũ Trụ. Khi nhận tài liệu bối cảnh, hãy trích xuất toàn bộ lịch sử lập quốc, tôn giáo, chủng tộc cổ xưa và quy luật sinh thái học.\n- Thiết lập các entry ở vị trí before_char, order 1 (hoặc 1-3) dưới dạng thường trú (constant: true, selective: false), scan_depth: 4, bật prevent_recursion: true và non_recursable: true.\n- Định dạng xuất ra bắt buộc phải theo chuẩn WORLD_TEMPLATE.\n- Đảm bảo độ sâu chi tiết tối đa, mô tả rõ ràng các mối quan hệ địa lý và xung đột chủng tộc vĩ mô.`
-        },
-        {
-          id: 'prompt_2',
-          title: 'PROMPT 2: HỆ THỐNG',
-          content: `[HỆ THỐNG SỨC MẠNH & LUẬT VẬT LÝ]\n- Đóng vai trò là Đại Pháp Sư / Chuyên Gia Thiết Kế Game. Trích xuất toàn bộ hệ thống cấp bậc sức mạnh, các định luật ma pháp, thuộc tính vật lý, các cấm kỹ và quy tắc tu luyện.\n- Thiết lập các entry ở vị trí before_char, order 2 (hoặc 1-3) dưới dạng thường trú (constant: true, selective: false), scan_depth: 4, bật prevent_recursion: true và non_recursable: true.\n- Mô tả cực kỳ logic, tránh mơ hồ và mâu thuẫn.`
-        },
-        {
-          id: 'prompt_3',
-          title: 'PROMPT 3: NHÂN VẬT',
-          content: `[HỒ SƠ NHÂN VẬT CHI TIẾT - CHARACTER SCAN]\n- Đóng vai trò là Nhà Tâm Lý Học và Nhà Biên Kịch. Trích xuất chân dung, tính cách, thói quen sinh hoạt, tiểu sử và mối quan hệ xã hội của từng nhân vật hoặc sinh vật xuất hiện trong tài liệu.\n- Thiết lập các entry ở vị trí after_char, order 99 dưới dạng kích hoạt từ khóa (constant: false, selective: true), scan_depth: 2, bật prevent_recursion: true và non_recursable: true.\n- Định dạng xuất ra bắt buộc tuân thủ CHARACTER_TEMPLATE tuyệt đối, bao gồm cả mô tả ngoại hình bạch miêu và thuộc tính NSFW (nếu bật).\n- Đảm bảo độ dài và sự sống động, giúp nhân vật như đang "thở" trên từng trang giấy.`
-        }
-      ];
-    }
-    if (!merged.apiKey && typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) {
-      merged.apiKey = process.env.GEMINI_API_KEY;
-    }
-    return merged;
-  });
+  const [settings, setSettings] = useState<OpenAISettings>(() => buildSettings(loadLocal<any>('sillyLore_settings', null)));
 
   // Persistent Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -123,18 +127,52 @@ const App: React.FC = () => {
   const [pipelineToAnalyze, setPipelineToAnalyze] = useState<WorldbuildingStep[] | null>(null);
   const [pendingOptimizationResults, setPendingOptimizationResults] = useState<any[] | null>(null);
 
+  // Lưu trữ trên đĩa + cảnh báo dung lượng
+  const hydratedRef = useRef(false);                 // chặn ghi đè file trước khi hydrate xong
+  const [storageDir, setStorageDir] = useState<string | null>(null); // đường dẫn folder lưu (dev)
+  const [storageWarning, setStorageWarning] = useState<string | null>(null); // banner cảnh báo gần đầy
+
   // --- Effects ---
+  // Hydrate từ FILE ĐĨA (nếu chạy `npm run dev`): file là nguồn thật, ưu tiên hơn localStorage.
   useEffect(() => {
-    localStorage.setItem('sillyLore_settings', JSON.stringify(settings));
+    (async () => {
+      try {
+        const dir = await getStorageDir();
+        if (dir) setStorageDir(dir);
+        const [dSettings, dLore] = await Promise.all([
+          readDisk<any>('sillyLore_settings'),
+          readDisk<any>('sillyLore_lorebook'),
+        ]);
+        if (dSettings) setSettings(buildSettings(dSettings));
+        if (dLore && Array.isArray(dLore.entries)) setLorebook(dLore as Lorebook);
+      } catch { /* không có dev-server → dùng localStorage */ }
+      finally { hydratedRef.current = true; }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return; // chưa hydrate xong → chưa ghi (tránh đè file bằng giá trị cũ)
+    try {
+      saveLocal('sillyLore_settings', settings);
+    } catch (e) {
+      setStorageWarning('Bộ nhớ trình duyệt đã đầy — không lưu được cài đặt. Hãy chuyển sang chạy local (lưu ra file) hoặc xoá bớt dữ liệu.');
+    }
   }, [settings]);
 
   // Tự lưu lorebook mỗi khi thay đổi (chống mất công khi reload/đóng tab giữa chừng).
   useEffect(() => {
+    if (!hydratedRef.current) return;
     try {
-      localStorage.setItem('sillyLore_lorebook', JSON.stringify(lorebook));
+      saveLocal('sillyLore_lorebook', lorebook);
+      // Cảnh báo sớm khi localStorage > 80% (~5MB) để người dùng kịp xử lý.
+      const { pct } = getLocalStorageUsage();
+      if (pct >= 80) {
+        setStorageWarning(`Bộ nhớ trình duyệt đã dùng ~${pct}% (giới hạn ~5MB). Lorebook lớn có thể không lưu được — nên chạy bản local để lưu ra file đĩa.`);
+      } else if (pct < 70 && storageWarning) {
+        setStorageWarning(null); // đã giải phóng → ẩn cảnh báo
+      }
     } catch (e) {
-      // Vượt quota (lorebook quá lớn) → bỏ qua, không làm app crash.
-      console.warn('Không thể tự lưu lorebook (có thể vượt dung lượng localStorage):', e);
+      setStorageWarning('Bộ nhớ trình duyệt đã đầy — không lưu được lorebook. Hãy chạy bản local (lưu ra file) hoặc xoá bớt entry.');
     }
   }, [lorebook]);
 
@@ -439,6 +477,18 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-background text-slate-100 overflow-hidden font-sans">
+      {/* Cảnh báo bộ nhớ gần đầy (localStorage) */}
+      {storageWarning && (
+        <div className="bg-amber-950/90 border-b border-amber-500/40 text-amber-100 text-xs px-4 py-2 flex items-center justify-between gap-3 shrink-0 z-30">
+          <span className="flex items-center gap-2">⚠️ {storageWarning}</span>
+          <button
+            onClick={() => setStorageWarning(null)}
+            className="text-amber-300 hover:text-amber-100 font-bold px-2 py-0.5 rounded hover:bg-amber-900/50 shrink-0"
+          >
+            Ẩn
+          </button>
+        </div>
+      )}
       {/* Top Bar */}
       <header className="h-14 bg-surface border-b border-slate-700 flex items-center justify-between px-4 shrink-0 shadow-md z-20">
         <div className="flex items-center gap-3">
@@ -584,11 +634,13 @@ const App: React.FC = () => {
         onClose={() => setIsGuideOpen(false)}
       />
 
-      <SettingsModal 
+      <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         onSave={setSettings}
+        getDefaults={() => buildSettings(null)}
+        storageDir={storageDir}
         onAnalyzePipeline={(steps) => {
           setPipelineToAnalyze(steps);
           setActiveView('worldbuilding');

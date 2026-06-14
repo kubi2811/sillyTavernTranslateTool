@@ -13,6 +13,8 @@ interface SettingsModalProps {
   settings: OpenAISettings;
   onSave: (settings: OpenAISettings) => void;
   onAnalyzePipeline?: (steps: WorldbuildingStep[]) => void;
+  getDefaults?: () => OpenAISettings;       // trả về settings mặc định (cho nút Khôi phục)
+  storageDir?: string | null;               // đường dẫn folder lưu dữ liệu (null = lưu trên trình duyệt)
 }
 
 const DEFAULT_WORLDBUILDING_STEPS: WorldbuildingStep[] = [
@@ -74,6 +76,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   settings,
   onSave,
+  getDefaults,
+  storageDir,
   onAnalyzePipeline,
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'guide'>('general');
@@ -256,6 +260,15 @@ ${master}`;
     onClose();
   };
 
+  // Khôi phục TOÀN BỘ cài đặt về mặc định (giữ lại API key + Proxy URL để khỏi nhập lại).
+  const handleResetDefaults = () => {
+    if (!getDefaults) return;
+    if (!window.confirm('Khôi phục TOÀN BỘ cài đặt về mặc định?\n(API Key và Proxy URL hiện tại sẽ được giữ lại)')) return;
+    const defs = getDefaults();
+    setFormData({ ...defs, apiKey: formData.apiKey, baseUrl: formData.baseUrl });
+    setToast({ message: 'Đã khôi phục cài đặt mặc định. Bấm "Lưu cấu hình" để áp dụng.', type: 'success' });
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Cấu hình AI Proxy & Hướng dẫn Quy trình" size="lg">
       <div className="space-y-6">
@@ -360,6 +373,27 @@ ${master}`;
                   <p className="text-[10.5px] text-slate-400 leading-relaxed pl-[3.7rem]">
                     Khi sinh thế giới, chia việc cho <b>cả 2 model (Pro + Flash) chạy đồng thời</b> theo tỉ lệ RPM → cộng dồn tốc độ. Tắt đi nếu muốn chỉ dùng Model Chính (chất lượng đồng nhất hơn nhưng chậm hơn).
                   </p>
+
+                  {/* ── SUPER MIX (gộp 5 nhóm vào 1 lượt) ── */}
+                  <div className="mt-2 pt-2 border-t border-indigo-500/15">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <div className="relative flex items-center">
+                        <input
+                          type="checkbox" className="peer sr-only"
+                          checked={formData.superMix === true}
+                          onChange={(e) => setFormData({ ...formData, superMix: e.target.checked })}
+                        />
+                        <div className="w-11 h-6 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-orange-500 peer-checked:to-rose-500"></div>
+                      </div>
+                      <span className="text-sm font-bold text-orange-100 flex items-center gap-1.5">
+                        🚀 Super Mix <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-orange-600/30 border border-orange-500/40 text-orange-200">~5×+ NHANH HƠN</span>
+                      </span>
+                    </label>
+                    <p className="text-[10.5px] text-slate-400 leading-relaxed pl-[3.7rem] mt-1">
+                      Thay vì quét tài liệu <b>5 lần</b> (mỗi nhóm 1 lượt), Super Mix chỉ đọc <b>1 lần</b> rồi bóc tách <b>đồng thời cả 5 nhóm</b> (thế giới quan, phe phái, địa danh, nhân vật…) trong cùng một lượt gọi → giảm ~5× số request. Kết hợp với Chế độ Mix càng nhanh.
+                      <br/><span className="text-orange-300/80">⚠️ Đánh đổi: AI làm nhiều việc/lượt nên phân loại có thể thô hơn so với quét tách từng nhóm. Bật khi cần tốc độ tối đa.</span>
+                    </p>
+                  </div>
                 </div>
 
                 <div>
@@ -728,10 +762,30 @@ ${master}`;
           </div>
         )}
 
+        {/* Dòng đường dẫn lưu dữ liệu */}
+        <div className="text-[10px] font-mono text-slate-500 pt-3 border-t border-slate-800/60 flex items-center gap-1.5 flex-wrap">
+          <Server size={11} className="text-slate-600 shrink-0" />
+          {storageDir ? (
+            <span>Dữ liệu lưu ra file tại: <span className="text-emerald-400 break-all">{storageDir}</span> <span className="text-slate-600">(xóa folder này = reset sạch)</span></span>
+          ) : (
+            <span>Đang lưu trong <b className="text-slate-400">localStorage trình duyệt</b>. Chạy bản local (<code className="text-indigo-400">npm run dev</code>) để lưu ra file đĩa, đổi vị trí qua <code className="text-indigo-400">TAWA_DATA_DIR</code> trong .env.</span>
+          )}
+        </div>
+
         {/* Action controls footer */}
-        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700/60">
-          <Button variant="ghost" onClick={onClose}>Hủy</Button>
-          <Button variant="primary" onClick={handleSave} icon={<Save size={16}/>}>Lưu cấu hình</Button>
+        <div className="flex justify-between items-center gap-3 mt-3 pt-4 border-t border-slate-700/60">
+          <Button
+            variant="ghost"
+            onClick={handleResetDefaults}
+            className="text-amber-300 hover:text-amber-200 hover:bg-amber-950/30 text-xs"
+            icon={<RefreshCw size={14} />}
+          >
+            Khôi phục mặc định toàn bộ
+          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" onClick={onClose}>Hủy</Button>
+            <Button variant="primary" onClick={handleSave} icon={<Save size={16}/>}>Lưu cấu hình</Button>
+          </div>
         </div>
       </div>
 

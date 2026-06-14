@@ -1,9 +1,20 @@
 import path from 'path';
+import fs from 'fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
+
+    // ─── Thư mục lưu dữ liệu trên Ổ ĐĨA (thay cho localStorage trình duyệt) ───
+    // Đổi vị trí bằng cách đặt TAWA_DATA_DIR trong file .env (đường dẫn tuyệt đối
+    // hoặc tương đối so với gốc dự án). Mặc định: <gốc dự án>/tawa-data
+    const DATA_DIR = env.TAWA_DATA_DIR
+      ? path.resolve(__dirname, env.TAWA_DATA_DIR)
+      : path.resolve(__dirname, 'tawa-data');
+
+    const safeKey = (k: string) => /^[a-zA-Z0-9_-]+$/.test(k); // chống path traversal
+
     return {
       server: {
         port: 3000,
@@ -11,6 +22,52 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [
         react(),
+        {
+          // Lưu/đọc settings + lorebook vào file JSON trong folder dự án (chỉ khi chạy `npm run dev`).
+          name: 'tawa-file-storage',
+          configureServer(server) {
+            server.middlewares.use((req, res, next) => {
+              if (!req.url || !req.url.startsWith('/__tawa_store')) return next();
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
+
+              // GET /__tawa_store/__info → cho client biết đường dẫn đang lưu
+              if (urlObj.pathname === '/__tawa_store/__info') {
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ dir: DATA_DIR }));
+                return;
+              }
+
+              const key = urlObj.pathname.replace('/__tawa_store/', '').trim();
+              if (!key || !safeKey(key)) { res.statusCode = 400; res.end('bad key'); return; }
+              const file = path.join(DATA_DIR, `${key}.json`);
+
+              if (req.method === 'GET') {
+                try {
+                  if (!fs.existsSync(file)) { res.statusCode = 404; res.end('not found'); return; }
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(fs.readFileSync(file, 'utf8'));
+                } catch (e: any) { res.statusCode = 500; res.end(String(e?.message || e)); }
+                return;
+              }
+
+              if (req.method === 'POST') {
+                let body = '';
+                req.on('data', (c) => { body += c; });
+                req.on('end', () => {
+                  try {
+                    fs.mkdirSync(DATA_DIR, { recursive: true });
+                    fs.writeFileSync(file, body, 'utf8');
+                    res.statusCode = 200; res.end('ok');
+                  } catch (e: any) { res.statusCode = 500; res.end(String(e?.message || e)); }
+                });
+                return;
+              }
+
+              res.statusCode = 405; res.end('method not allowed');
+            });
+          }
+        },
         {
           name: 'cors-proxy-middleware',
           configureServer(server) {

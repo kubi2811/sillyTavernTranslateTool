@@ -147,7 +147,11 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
   }, [pipelineRunning, pipelineStartTime]);
 
   // Danh sách bước đang bật (dùng chung cho render console tiến trình).
-  const enabledStepList = (settings.steps && settings.steps.length > 0 ? settings.steps : DEFAULT_WORLDBUILDING_STEPS).filter(s => s.enabled);
+  // Super Mix gộp tất cả nhóm thành 1 bước → console cũng hiển thị 1 bước cho khớp.
+  const baseEnabledSteps = (settings.steps && settings.steps.length > 0 ? settings.steps : DEFAULT_WORLDBUILDING_STEPS).filter(s => s.enabled);
+  const enabledStepList = (settings.superMix && baseEnabledSteps.length > 1)
+    ? [{ ...baseEnabledSteps[0], name: `Super Mix: bóc tách TOÀN BỘ ${baseEnabledSteps.length} nhóm trong 1 lượt` }]
+    : baseEnabledSteps;
   const enabledStepCount = enabledStepList.length;
 
   // mm:ss
@@ -161,10 +165,24 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
     const rawSteps = settings.steps && settings.steps.length > 0
       ? settings.steps
       : DEFAULT_WORLDBUILDING_STEPS;
-    const enabledSteps = rawSteps.filter(s => s.enabled);
+    let enabledSteps = rawSteps.filter(s => s.enabled);
     if (enabledSteps.length === 0) {
       alert("Vui lòng kích hoạt ít nhất một bước hướng dẫn trong Cài đặt.");
       return;
+    }
+
+    // ─── SUPER MIX: gộp tất cả nhóm vào 1 "siêu bước" → đọc tài liệu 1× thay vì 5× ───
+    // Mỗi mảnh chỉ gọi API 1 lần để bóc tách ĐỒNG THỜI mọi nhóm → giảm ~5× số request.
+    if (settings.superMix && enabledSteps.length > 1) {
+      const combined = enabledSteps
+        .map((s, idx) => `▸ NHÓM ${idx + 1} — ${s.name}:\n${s.prompt}`)
+        .join('\n\n');
+      enabledSteps = [{
+        id: 'super_mix',
+        name: `Super Mix: bóc tách TOÀN BỘ ${enabledSteps.length} nhóm trong 1 lượt`,
+        enabled: true,
+        prompt: `Trong CÙNG một lượt, hãy trích xuất ĐỒNG THỜI mọi nhóm dưới đây từ phân mảnh. Với MỖI thực thể hợp lệ thuộc BẤT KỲ nhóm nào, tạo 1 entry đúng vị trí/order/chiến lược mà nhóm đó quy định. KHÔNG bỏ sót nhóm nào.\n\n${combined}`,
+      }];
     }
 
     setPipelineRunning(true);
