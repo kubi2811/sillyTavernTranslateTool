@@ -99,53 +99,56 @@
         </div>
         
         <div class="collapsible-content" id="rules-content">
+          <button type="button" id="btn-import-default-rules" class="btn btn-secondary btn-rule-import">
+            Import Worldbook 2 Rules
+          </button>
           <!-- Nhóm 1 -->
           <div class="group-rule-card" data-group="1">
-            <h4 class="group-1-text">Nhóm 1: Sức Mạnh Cốt Lõi</h4>
+            <h4 class="group-1-text">Nhóm 1: Thế giới quan & Tổng cương</h4>
             <div class="rule-grid">
               <div><span class="label-tiny">Strategy</span><span>Constant</span></div>
-              <div><span class="label-tiny">Position</span><span>At Depth (Sys)</span></div>
-              <div><span class="label-tiny">Depth</span><span>0</span></div>
-              <div><span class="label-tiny">Order</span><span>900</span></div>
+              <div><span class="label-tiny">Position</span><span>Before Character</span></div>
+              <div><span class="label-tiny">Depth</span><span>4</span></div>
+              <div><span class="label-tiny">Order</span><span>1</span></div>
             </div>
           </div>
           <!-- Nhóm 2 -->
           <div class="group-rule-card" data-group="2">
-            <h4 class="group-2-text">Nhóm 2: Thế Giới Quan</h4>
+            <h4 class="group-2-text">Nhóm 2: Xem lướt nhân vật & thế lực</h4>
             <div class="rule-grid">
-              <div><span class="label-tiny">Strategy</span><span>Constant/Normal</span></div>
-              <div><span class="label-tiny">Position</span><span>At Depth (Sys)</span></div>
+              <div><span class="label-tiny">Strategy</span><span>Constant</span></div>
+              <div><span class="label-tiny">Position</span><span>Before Character</span></div>
               <div><span class="label-tiny">Depth</span><span>4</span></div>
-              <div><span class="label-tiny">Order</span><span>800</span></div>
+              <div><span class="label-tiny">Order</span><span>4</span></div>
             </div>
           </div>
           <!-- Nhóm 3 -->
           <div class="group-rule-card" data-group="3">
-            <h4 class="group-3-text">Nhóm 3: Nhân Vật</h4>
+            <h4 class="group-3-text">Nhóm 3: Chi tiết nhân vật cốt lõi</h4>
             <div class="rule-grid">
-              <div><span class="label-tiny">Strategy</span><span>Normal</span></div>
-              <div><span class="label-tiny">Position</span><span>Before Char</span></div>
-              <div><span class="label-tiny">Depth</span><span>-</span></div>
-              <div><span class="label-tiny">Order</span><span>200</span></div>
+              <div><span class="label-tiny">Strategy</span><span>Selective</span></div>
+              <div><span class="label-tiny">Position</span><span>After Character</span></div>
+              <div><span class="label-tiny">Depth</span><span>2</span></div>
+              <div><span class="label-tiny">Order</span><span>99</span></div>
             </div>
           </div>
           <!-- Nhóm 4 -->
           <div class="group-rule-card" data-group="4">
-            <h4 class="group-4-text">Nhóm 4: Phe Phái, Tổ Chức</h4>
+            <h4 class="group-4-text">Nhóm 4: Cảnh vật & Chi tiết sự kiện</h4>
             <div class="rule-grid">
-              <div><span class="label-tiny">Strategy</span><span>Normal</span></div>
-              <div><span class="label-tiny">Position</span><span>Before Char</span></div>
-              <div><span class="label-tiny">Depth</span><span>-</span></div>
-              <div><span class="label-tiny">Order</span><span>150</span></div>
+              <div><span class="label-tiny">Strategy</span><span>Selective</span></div>
+              <div><span class="label-tiny">Position</span><span>After Character</span></div>
+              <div><span class="label-tiny">Depth</span><span>2</span></div>
+              <div><span class="label-tiny">Order</span><span>80</span></div>
             </div>
           </div>
           <!-- Nhóm 5 -->
           <div class="group-rule-card" data-group="5">
-            <h4 class="group-5-text">Nhóm 5: Địa Điểm, Khu Vực</h4>
+            <h4 class="group-5-text">Nhóm 5: Tài liệu NPC</h4>
             <div class="rule-grid">
-              <div><span class="label-tiny">Strategy</span><span>Normal</span></div>
-              <div><span class="label-tiny">Position</span><span>Before Char</span></div>
-              <div><span class="label-tiny">Depth</span><span>-</span></div>
+              <div><span class="label-tiny">Strategy</span><span>Selective</span></div>
+              <div><span class="label-tiny">Position</span><span>After Character</span></div>
+              <div><span class="label-tiny">Depth</span><span>2</span></div>
               <div><span class="label-tiny">Order</span><span>100</span></div>
             </div>
           </div>
@@ -339,11 +342,11 @@
           <label for="modal-assigned-group">AI Class / Group Override</label>
           <select id="modal-assigned-group">
             <option value="">Unclassified</option>
-            <option value="1">Nhóm 1: Hệ Thống Sức Mạnh Cốt Lõi (Order 900)</option>
-            <option value="2">Nhóm 2: Thế Giới Quan & Quy Luật Tự Nhiên (Order 800)</option>
-            <option value="3">Nhóm 3: Nhân Vật (Order 200)</option>
-            <option value="4">Nhóm 4: Phe Phái, Tổ Chức & Tôn Giáo (Order 150)</option>
-            <option value="5">Nhóm 5: Địa Điểm & Khu Vực (Order 100)</option>
+            <option value="1">Nhóm 1: Thế giới quan & Tổng cương (Order 1)</option>
+            <option value="2">Nhóm 2: Xem lướt nhân vật & thế lực (Order 4)</option>
+            <option value="3">Nhóm 3: Chi tiết nhân vật cốt lõi (Order 99)</option>
+            <option value="4">Nhóm 4: Cảnh vật & Chi tiết sự kiện (Order 80)</option>
+            <option value="5">Nhóm 5: Tài liệu NPC (Order 100)</option>
           </select>
         </div>
         <div class="modal-explanation" id="modal-ai-explanation">

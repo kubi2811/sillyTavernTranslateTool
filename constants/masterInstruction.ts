@@ -1,5 +1,5 @@
-// AUTO-GENERATED từ "Cấu hình Worldbook.txt".
-// Đây là nội dung MẶC ĐỊNH cho "Hướng dẫn tổng" — chỉ dẫn chung áp dụng cho mọi bước pipeline.
+// AUTO-GENERATED from "Cấu hình Worldbook 2.txt".
+// Default content for "Hướng dẫn tổng".
 export const DEFAULT_MASTER_INSTRUCTION = `# Cấu hình Worldbook —— Để những gì bạn viết thực sự có hiệu lực
 
 Mấy chương trước đã dạy bạn cách viết nội dung, chương này sẽ dạy bạn cách đặt những nội dung đã viết vào đúng vị trí.

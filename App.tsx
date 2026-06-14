@@ -41,7 +41,7 @@ const DEFAULT_SETTINGS: OpenAISettings = {
   mixMode: true,
   // Super Mix: mặc định TẮT (chỉ bật khi cần tốc độ tối đa, chấp nhận phân loại thô hơn).
   superMix: false,
-  // "Hướng dẫn tổng" mặc định = nội dung file Cấu hình Worldbook.txt (gộp 2 tab cũ thành 1 text bự).
+  // "Hướng dẫn tổng" mặc định = nội dung file Cấu hình Worldbook 2.txt (gộp 2 tab cũ thành 1 text bự).
   masterInstruction: DEFAULT_MASTER_INSTRUCTION,
 };
 

@@ -231,6 +231,14 @@ select:focus, input[type="text"]:focus, input[type="password"]:focus, textarea:f
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+.btn-rule-import {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 12px;
+  min-height: 34px;
+  font-size: 0.72rem;
+}
+
 .group-rule-card h4 {
   font-size: 0.8rem;
   font-weight: 700;

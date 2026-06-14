@@ -33,6 +33,7 @@ const btnValidateKey = document.getElementById('btn-validate-key');
 const validationStatusIndicator = document.getElementById('validation-status-indicator');
 const customModelInput = document.getElementById('custom-model');
 const customModelGroup = document.getElementById('custom-model-group');
+const btnImportDefaultRules = document.getElementById('btn-import-default-rules');
 
 // Sample buttons
 const btnLoadSampleCard = document.getElementById('btn-load-sample-card');
@@ -68,44 +69,111 @@ let activeFile = {
 let currentFilter = 'all';
 let editingEntryUid = null;
 
-// Definition of target rules for each group
-const GROUP_RULES = {
+// Default target rules imported from "Cấu hình Worldbook 2.txt".
+const DEFAULT_GROUP_RULES = {
   1: {
-    name: 'Hệ Thống Sức Mạnh Cốt Lõi',
+    name: 'Thế giới quan & Tổng cương',
+    strategyName: 'Constant',
     constant: true,
-    positionName: '@D System',
-    card: { position: 'after_char', extPosition: 4, depth: 0, role: 0, order: 900 },
-    lorebook: { position: 4, depth: 0, role: 0, order: 900 }
+    positionName: 'Before Character',
+    defaultOrder: 1,
+    card: { position: 'before_char', extPosition: 0, depth: 4, role: null, order: 1 },
+    lorebook: { position: 0, depth: 4, role: null, order: 1 }
   },
   2: {
-    name: 'Thế Giới Quan & Quy Luật Tự Nhiên',
-    constant: true, // Strategy is Constant/Normal, default to Constant = true for rules, but we accept either if correct
-    positionName: '@D System',
-    card: { position: 'after_char', extPosition: 4, depth: 4, role: 0, order: 800 },
-    lorebook: { position: 4, depth: 4, role: 0, order: 800 }
+    name: 'Xem lướt nhân vật & thế lực',
+    strategyName: 'Constant',
+    constant: true,
+    positionName: 'Before Character',
+    defaultOrder: 4,
+    card: { position: 'before_char', extPosition: 0, depth: 4, role: null, order: 4 },
+    lorebook: { position: 0, depth: 4, role: null, order: 4 }
   },
   3: {
-    name: 'Nhân Vật',
+    name: 'Chi tiết nhân vật cốt lõi',
+    strategyName: 'Selective',
     constant: false,
-    positionName: 'Before Character',
-    card: { position: 'before_char', extPosition: 0, depth: 4, role: null, order: 200 }, // depth is default 4 in ST
-    lorebook: { position: 0, depth: 4, role: null, order: 200 }
+    positionName: 'After Character',
+    defaultOrder: 99,
+    card: { position: 'after_char', extPosition: 1, depth: 2, role: null, order: 99 },
+    lorebook: { position: 1, depth: 2, role: null, order: 99 }
   },
   4: {
-    name: 'Phe Phái, Tổ Chức & Tôn Giáo',
+    name: 'Cảnh vật & Chi tiết sự kiện',
+    strategyName: 'Selective',
     constant: false,
-    positionName: 'Before Character',
-    card: { position: 'before_char', extPosition: 0, depth: 4, role: null, order: 150 },
-    lorebook: { position: 0, depth: 4, role: null, order: 150 }
+    positionName: 'After Character',
+    defaultOrder: 80,
+    card: { position: 'after_char', extPosition: 1, depth: 2, role: null, order: 80 },
+    lorebook: { position: 1, depth: 2, role: null, order: 80 }
   },
   5: {
-    name: 'Địa Điểm & Khu Vực',
+    name: 'Tài liệu NPC',
+    strategyName: 'Selective',
     constant: false,
-    positionName: 'Before Character',
-    card: { position: 'before_char', extPosition: 0, depth: 4, role: null, order: 100 },
-    lorebook: { position: 0, depth: 4, role: null, order: 100 }
+    positionName: 'After Character',
+    defaultOrder: 100,
+    card: { position: 'after_char', extPosition: 1, depth: 2, role: null, order: 100 },
+    lorebook: { position: 1, depth: 2, role: null, order: 100 }
   }
 };
+
+let GROUP_RULES = cloneDefaultRules();
+
+function cloneDefaultRules() {
+  return JSON.parse(JSON.stringify(DEFAULT_GROUP_RULES));
+}
+
+function getRuleOrder(rule) {
+  return rule.defaultOrder ?? rule.card.order ?? rule.lorebook.order;
+}
+
+function getRuleDepth(rule) {
+  return rule.card.depth ?? rule.lorebook.depth ?? '-';
+}
+
+function renderRuleCards() {
+  document.querySelectorAll('.group-rule-card').forEach(card => {
+    const group = Number(card.dataset.group);
+    const rule = GROUP_RULES[group];
+    if (!rule) return;
+
+    const title = card.querySelector('h4');
+    if (title) title.textContent = `Nhóm ${group}: ${rule.name}`;
+
+    const values = [
+      rule.strategyName || (rule.constant ? 'Constant' : 'Selective'),
+      rule.positionName,
+      getRuleDepth(rule),
+      getRuleOrder(rule)
+    ];
+
+    card.querySelectorAll('.rule-grid > div').forEach((cell, index) => {
+      const valueNode = cell.querySelector('span:last-child');
+      if (valueNode && values[index] !== undefined) {
+        valueNode.textContent = String(values[index]);
+      }
+    });
+  });
+}
+
+function applyDefaultRulePreset(showLog = true) {
+  GROUP_RULES = cloneDefaultRules();
+  localStorage.setItem('st_opt_rule_preset', 'worldbook2');
+  renderRuleCards();
+
+  if (activeFile.entries.length > 0) {
+    activeFile.entries.forEach(entry => {
+      if (entry.assignedGroup) evaluateEntryStatus(entry);
+    });
+    updateDistribution();
+    renderEntries();
+  }
+
+  if (showLog) {
+    log('Imported Target Settings Rules from Cấu hình Worldbook 2 preset.', 'success');
+  }
+}
 
 // Function to update placeholder dynamically
 function updateApiUrlPlaceholder() {
@@ -145,6 +213,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   updateApiUrlPlaceholder();
   updateModelInputVisibility();
+  renderRuleCards();
+});
+
+btnImportDefaultRules?.addEventListener('click', () => {
+  applyDefaultRulePreset();
 });
 
 // Save settings to Local Storage when changed
@@ -380,6 +453,7 @@ function processRawJson(filename, json, size) {
     
     // Config fields
     let constant = entry.constant !== undefined ? entry.constant : false;
+    let selective = entry.selective !== undefined ? entry.selective : !constant;
     let order = entry.insertion_order !== undefined ? entry.insertion_order : (entry.order !== undefined ? entry.order : 100);
     
     // Position parsing
@@ -396,6 +470,7 @@ function processRawJson(filename, json, size) {
       keys,
       currentConfig: {
         constant,
+        selective,
         order,
         position,
         extPosition,
@@ -488,7 +563,7 @@ function renderEntries() {
       }
       return `
         <div class="config-display">
-          <span><span class="label">Strat:</span><span class="val">${cfg.constant ? 'Constant' : 'Normal'}</span></span>
+          <span><span class="label">Strat:</span><span class="val">${cfg.constant ? 'Constant' : (cfg.selective ? 'Selective' : 'Normal')}</span></span>
           <span><span class="label">Pos:</span><span class="val">${posText}</span></span>
           <span><span class="label">Depth:</span><span class="val">${cfg.depth !== null ? cfg.depth : '-'}</span></span>
           <span><span class="label">Order:</span><span class="val">${cfg.order}</span></span>
@@ -507,20 +582,16 @@ function renderEntries() {
     if (entry.assignedGroup) {
       const rule = GROUP_RULES[entry.assignedGroup];
       const targetCfg = {
+        strategy: rule.strategyName || (rule.constant ? 'Constant' : 'Selective'),
         constant: rule.constant,
         position: rule.positionName,
-        depth: entry.assignedGroup === 1 ? 0 : (entry.assignedGroup === 2 ? 4 : '-'),
-        order: rule.assignedOrder || (entry.assignedGroup === 1 ? 900 : (entry.assignedGroup === 2 ? 800 : (entry.assignedGroup === 3 ? 200 : (entry.assignedGroup === 4 ? 150 : 100))))
+        depth: getRuleDepth(rule),
+        order: getRuleOrder(rule)
       };
-      
-      // Handle strategy for group 2 which can be either constant or normal
-      if (entry.assignedGroup === 2) {
-        targetCfg.constant = entry.currentConfig.constant; // Retain current, or set true as preference
-      }
 
       targetConfigHtml = `
         <div class="config-display">
-          <span><span class="label">Strat:</span><span class="val">${targetCfg.constant ? 'Constant' : 'Normal'}</span></span>
+          <span><span class="label">Strat:</span><span class="val">${targetCfg.strategy}</span></span>
           <span><span class="label">Pos:</span><span class="val">${targetCfg.position}</span></span>
           <span><span class="label">Depth:</span><span class="val">${targetCfg.depth}</span></span>
           <span><span class="label">Order:</span><span class="val">${targetCfg.order}</span></span>
@@ -672,20 +743,20 @@ btnRunHeuristic.addEventListener('click', () => {
 function runLocalHeuristicOnEntry(entry) {
   const textToAnalyze = `${entry.comment} ${entry.keys.join(' ')} ${entry.content}`.toLowerCase();
   
-  // Nhóm 1 keywords: Sức mạnh cốt lõi, tu luyện, cấp độ, cảnh giới, đan dược, vũ khí, võ công, chiêu thức
-  const g1Keywords = ['tu luyện', 'tu luyen', 'sức mạnh cốt lõi', 'hệ thống sức mạnh', 'cảnh giới', 'canh gioi', 'linh khí', 'năng lượng', 'nang luong', 'đan dược', 'đế cấp', 'thần cấp', 'pháp bảo', 'huyền công', 'giới hạn', 'gioi han', 'tinh hoa', 'định luật'];
+  // Nhóm 1: Thế giới quan, tổng cương, luật nền, hệ thống sức mạnh cấp vĩ mô.
+  const g1Keywords = ['thế giới quan', 'the gioi quan', 'tổng cương', 'tong cuong', 'bối cảnh thế giới', 'boi canh the gioi', 'lịch sử thế giới', 'lich su the gioi', 'quy luật', 'quy luat', 'định luật', 'dinh luat', 'hệ thống sức mạnh', 'he thong suc manh', 'ma pháp', 'ma phap', 'tu luyện', 'tu luyen', 'cảnh giới', 'canh gioi', 'chủng tộc', 'chung toc', 'tôn giáo', 'ton giao'];
   
-  // Nhóm 2: Thế giới quan, quy luật tự nhiên, địa lý vĩ mô, chủng tộc, tôn giáo
-  const g2Keywords = ['thế giới quan', 'the gioi quan', 'lịch sử', 'lich su', 'truyền thuyết', 'truyen thuyet', 'thần thoại', 'chủng tộc', 'chung toc', 'yêu tộc', 'nhân tộc', 'ma tộc', 'quy luật', 'quy luat', 'sinh thái', 'tôn giáo', 'đạo giáo', 'phật giáo'];
+  // Nhóm 2: Xem lướt nhân vật, thế lực, tổ chức và quan hệ tổng quan.
+  const g2Keywords = ['xem lướt', 'xem luot', 'tổng quan nhân vật', 'tong quan nhan vat', 'danh sách nhân vật', 'danh sach nhan vat', 'cast', 'relationships', 'quan hệ', 'quan he', 'phe phái', 'phe phai', 'tổ chức', 'to chuc', 'gia tộc', 'gia toc', 'bang hội', 'bang hoi', 'học viện', 'hoc vien', 'quân đội', 'quan doi', 'thế lực', 'the luc'];
 
-  // Nhóm 3: Nhân vật cụ thể, NPC, nhân vật chính, tính cách
-  const g3Keywords = ['nhân vật', 'nhan vat', 'sinh vật', 'sinh vat', 'quái thú', 'quai thu', 'vua', 'hoàng đế', 'diễn viên', 'tuổi', 'ngoại hình', 'tính cách', 'tinh cach', 'sở thích', 'so thich'];
+  // Nhóm 3: Chi tiết nhân vật cốt lõi.
+  const g3Keywords = ['nhân vật chính', 'nhan vat chinh', 'nhân vật cốt lõi', 'nhan vat cot loi', 'hồ sơ nhân vật', 'ho so nhan vat', 'ngoại hình', 'ngoai hinh', 'tính cách', 'tinh cach', 'tiểu sử', 'tieu su', 'kỹ năng', 'ky nang', 'năng lực', 'nang luc', 'sở thích', 'so thich', 'nsfw'];
 
-  // Nhóm 4: Phe phái, tổ chức, môn phái, bang hội, triều đình
-  const g4Keywords = ['phe phái', 'phe phai', 'tổ chức', 'to chuc', 'môn phái', 'mon phai', 'gia tộc', 'triều đình', 'tông môn', 'bang hội', 'học viện', 'hội đồng', 'hiệp hội', 'quân đội'];
+  // Nhóm 4: Cảnh vật, bối cảnh chi tiết, địa danh và sự kiện.
+  const g4Keywords = ['cảnh vật', 'canh vat', 'bối cảnh', 'boi canh', 'sự kiện', 'su kien', 'địa điểm', 'dia diem', 'khu vực', 'khu vuc', 'thành phố', 'thanh pho', 'quốc gia', 'quoc gia', 'lãnh thổ', 'lanh tho', 'phòng', 'phong', 'dinh thự', 'dinh thu', 'cảnh quan', 'canh quan', 'event', 'location', 'place'];
 
-  // Nhóm 5: Địa điểm, khu vực, thành phố, kiến trúc, cảnh quan vật lý
-  const g5Keywords = ['địa điểm', 'dia diem', 'khu vực', 'khu vuc', 'thành phố', 'thanh pho', 'quốc gia', 'lãnh thổ', 'ngọn núi', 'sông', 'biển', 'hang động', 'ngôi đền', 'lâu đài', 'bản đồ'];
+  // Nhóm 5: Tài liệu NPC và vai phụ tải theo nhu cầu.
+  const g5Keywords = ['npc', 'vai phụ', 'vai phu', 'nhân vật phụ', 'nhan vat phu', 'supporting character', 'background character', 'quần chúng', 'quan chung', 'dân làng', 'dan lang', 'giáo viên', 'giao vien', 'nhân viên', 'nhan vien', 'người hầu', 'nguoi hau'];
 
   // Score match counts
   const scores = [0, 0, 0, 0, 0, 0]; // 1-5 indices
@@ -697,11 +768,11 @@ function runLocalHeuristicOnEntry(entry) {
   g5Keywords.forEach(k => { if (textToAnalyze.includes(k)) scores[5] += 2; });
 
   // Add regex matches for specific comments
-  if (entry.comment.toLowerCase().includes('sức mạnh') || entry.comment.toLowerCase().includes('hệ thống') || entry.comment.toLowerCase().includes('power')) scores[1] += 5;
-  if (entry.comment.toLowerCase().includes('thế giới') || entry.comment.toLowerCase().includes('quy luật') || entry.comment.toLowerCase().includes('world')) scores[2] += 5;
+  if (entry.comment.toLowerCase().includes('thế giới') || entry.comment.toLowerCase().includes('tổng cương') || entry.comment.toLowerCase().includes('world')) scores[1] += 5;
+  if (entry.comment.toLowerCase().includes('xem lướt') || entry.comment.toLowerCase().includes('tổ chức') || entry.comment.toLowerCase().includes('faction') || entry.comment.toLowerCase().includes('guild')) scores[2] += 5;
   if (entry.comment.toLowerCase().includes('nhân vật') || entry.comment.toLowerCase().includes('character')) scores[3] += 5;
-  if (entry.comment.toLowerCase().includes('phe phái') || entry.comment.toLowerCase().includes('tổ chức') || entry.comment.toLowerCase().includes('faction') || entry.comment.toLowerCase().includes('guild')) scores[4] += 5;
-  if (entry.comment.toLowerCase().includes('địa điểm') || entry.comment.toLowerCase().includes('khu vực') || entry.comment.toLowerCase().includes('location') || entry.comment.toLowerCase().includes('place')) scores[5] += 5;
+  if (entry.comment.toLowerCase().includes('bối cảnh') || entry.comment.toLowerCase().includes('sự kiện') || entry.comment.toLowerCase().includes('địa điểm') || entry.comment.toLowerCase().includes('location') || entry.comment.toLowerCase().includes('place')) scores[4] += 5;
+  if (entry.comment.toLowerCase().includes('npc') || entry.comment.toLowerCase().includes('vai phụ')) scores[5] += 5;
 
   // Find max score
   let maxScore = 0;
@@ -718,10 +789,10 @@ function runLocalHeuristicOnEntry(entry) {
   let explanation = `Heuristic classified based on matching keywords (Score: ${maxScore})`;
   if (maxScore === 0) {
     // Look for comments
-    if (entry.comment.match(/(sức mạnh|level|power|hệ thống|luật)/i)) { classifiedGroup = 1; explanation = "Heuristic matched power comment"; }
-    else if (entry.comment.match(/(thế giới|world|lịch sử|sử)/i)) { classifiedGroup = 2; explanation = "Heuristic matched world comment"; }
-    else if (entry.comment.match(/(phe|phái|bang|tông|tổ chức|guild|faction)/i)) { classifiedGroup = 4; explanation = "Heuristic matched faction comment"; }
-    else if (entry.comment.match(/(nơi|khu|địa|thành|place|location|land)/i)) { classifiedGroup = 5; explanation = "Heuristic matched location comment"; }
+    if (entry.comment.match(/(thế giới|world|lịch sử|tổng cương|quy luật|hệ thống)/i)) { classifiedGroup = 1; explanation = "Heuristic matched worldview comment"; }
+    else if (entry.comment.match(/(xem lướt|overview|phe|phái|bang|tông|tổ chức|guild|faction)/i)) { classifiedGroup = 2; explanation = "Heuristic matched overview/faction comment"; }
+    else if (entry.comment.match(/(nơi|khu|địa|thành|place|location|land|sự kiện|event|bối cảnh)/i)) { classifiedGroup = 4; explanation = "Heuristic matched scene/location comment"; }
+    else if (entry.comment.match(/(npc|vai phụ|supporting)/i)) { classifiedGroup = 5; explanation = "Heuristic matched NPC comment"; }
     else { classifiedGroup = 3; explanation = "Default group assignment (No keyword match)"; }
   }
 
@@ -740,13 +811,9 @@ function evaluateEntryStatus(entry) {
   
   let matches = true;
 
-  // Constant strategy check
-  if (entry.assignedGroup === 2) {
-    // For Group 2: Constant / Normal (accept either, but let's check matches)
-    // No strict constant strategy check, passes strategy matching
-  } else {
-    if (cfg.constant !== rule.constant) matches = false;
-  }
+  // Strategy check
+  if (cfg.constant !== rule.constant) matches = false;
+  if (cfg.selective !== !rule.constant) matches = false;
 
   // Position & Order checks depending on card vs lorebook
   if (activeFile.type === 'card') {
@@ -754,22 +821,15 @@ function evaluateEntryStatus(entry) {
     if (cfg.position !== cardRule.position) matches = false;
     if (cfg.extPosition !== cardRule.extPosition) matches = false;
     if (cfg.order !== cardRule.order) matches = false;
-    
-    // Depth check only for At Depth System (Group 1 & 2)
-    if (entry.assignedGroup === 1 || entry.assignedGroup === 2) {
-      if (cfg.depth !== cardRule.depth) matches = false;
-      if (cfg.role !== cardRule.role) matches = false;
-    }
+    if (cfg.depth !== cardRule.depth) matches = false;
+    if (cardRule.role !== null && cfg.role !== cardRule.role) matches = false;
   } else {
     // Standalone Lorebook
     const lbRule = rule.lorebook;
     if (cfg.position !== lbRule.position) matches = false;
     if (cfg.order !== lbRule.order) matches = false;
-    
-    if (entry.assignedGroup === 1 || entry.assignedGroup === 2) {
-      if (cfg.depth !== lbRule.depth) matches = false;
-      if (cfg.role !== lbRule.role) matches = false;
-    }
+    if (cfg.depth !== lbRule.depth) matches = false;
+    if (lbRule.role !== null && cfg.role !== lbRule.role) matches = false;
   }
 
   entry.status = matches ? 'correct' : 'mismatched';
@@ -850,25 +910,30 @@ async function classifyBatchWithAi(batch, provider, model, apiKey) {
 Bạn là một trợ lý AI chuyên nghiệp phân loại thông tin thế giới (World Info / Lorebook) của SillyTavern.
 Hãy đọc danh sách các mục nhập dưới đây và xếp chúng vào 1 trong 5 nhóm tương ứng theo hướng dẫn tuyệt đối sau:
 
-### Nhóm 1: Hệ Thống Sức Mạnh Cốt Lõi (Group 1)
-- Các định luật tuyệt đối về tu luyện, phân chia cảnh giới, các loại năng lượng (linh khí, ma lực...), vũ khí pháp bảo truyền thuyết, đan dược và giới hạn sức mạnh tối cao của thế giới.
-- Ví dụ: Cảnh giới tu luyện (Luyện Khí -> Trúc Cơ -> Kim Đan...), Hệ thống ma pháp học, Định luật ma lực...
+### Nhóm 1: Thế giới quan & Tổng cương (Group 1)
+- Tổng cương thế giới, lịch sử vĩ mô, luật nền, quy tắc xã hội, chủng tộc, tôn giáo, hệ thống sức mạnh cấp nền tảng.
+- Cấu hình mục tiêu: before_char, order 1, constant true, selective false, depth 4.
+- Ví dụ: Tổng cương đại lục, lịch sử lập quốc, luật ma pháp, hệ thống cảnh giới, quy tắc xã hội.
 
-### Nhóm 2: Thế Giới Quan & Quy Luật Tự Nhiên (Group 2)
-- Các thiết lập về bối cảnh thế giới vĩ mô, lịch sử thế giới, truyền thuyết cổ xưa, quy luật sinh thái, chủng tộc (yêu tộc, ma tộc, nhân tộc...), các tôn giáo và thần thoại.
-- Ví dụ: Lịch sử đại lục, Truyền thuyết sáng thế, Quy luật sinh thái rừng tinh linh, Chủng tộc Ma nhân...
+### Nhóm 2: Xem lướt nhân vật & thế lực (Group 2)
+- Mục overview/list giúp AI luôn biết thế giới có những ai, phe nào, tổ chức nào, quan hệ tổng quan ra sao.
+- Cấu hình mục tiêu: before_char, order 4, constant true, selective false, depth 4.
+- Ví dụ: Danh sách nhân vật chính, sơ đồ phe phái, tổng quan tổ chức và quan hệ.
 
-### Nhóm 3: Nhân Vật (Group 3)
-- Các mô tả về nhân vật cụ thể, NPC, các loài sinh vật hoặc quái thú đặc hữu của thế giới.
-- Ví dụ: Hồ sơ nhân vật Tiểu Vy, Thuộc tính của Thần Thú Phượng Hoàng, Thần tính của Arthur...
+### Nhóm 3: Chi tiết nhân vật cốt lõi (Group 3)
+- Hồ sơ đầy đủ của nhân vật chính/cốt lõi: ngoại hình, tính cách, tiểu sử, năng lực, quan hệ, thói quen.
+- Cấu hình mục tiêu: after_char, order 99, constant false, selective true, depth 2.
+- Ví dụ: Hồ sơ chi tiết Han Isratte, ngoại hình/tính cách/kỹ năng của nhân vật cốt lõi.
 
-### Nhóm 4: Phe Phái, Tổ Chức & Tôn Giáo (Group 4)
-- Thiết lập về thế lực, bang phái, tông môn, gia tộc, cơ cấu vận hành nội bộ, cấp bậc trong tổ chức, các mâu thuẫn nội bộ của tổ chức.
-- Ví dụ: Tông môn Vô Cực Tông, Cơ cấu bang hội Assassin, Mâu thuẫn giữa 4 đại gia tộc...
+### Nhóm 4: Cảnh vật & Chi tiết sự kiện (Group 4)
+- Địa điểm, cảnh vật, phòng ốc, khu vực cụ thể, bối cảnh nhỏ, sự kiện hoặc tình huống được tải theo nhu cầu.
+- Cấu hình mục tiêu: after_char, order 80, constant false, selective true, depth 2.
+- Ví dụ: Cung điện, phòng học, trận chiến, sự kiện quá khứ, khu vực cần mô tả khi được nhắc đến.
 
-### Nhóm 5: Địa Điểm & Khu Vực (Group 5)
-- Địa điểm địa lý, thành trì, quốc gia, khu vực thiên nhiên, kiến trúc đặc thù, cảnh quan vật lý của thế giới.
-- Ví dụ: Thành phố ánh sáng Lumina, Hang động tử thần, Cung điện hoàng gia, Đại lục Vô Song...
+### Nhóm 5: Tài liệu NPC (Group 5)
+- NPC, vai phụ, nhân vật nền, tài liệu phụ trợ hoặc bộ điều khiển tải theo nhu cầu.
+- Cấu hình mục tiêu: after_char, order 100, constant false, selective true, depth 2.
+- Ví dụ: Hồ sơ NPC, người hầu, giáo viên, nhân viên, vai phụ xuất hiện khi được nhắc đến.
 
 MỤC TIÊU PHÂN LOẠI:
 Phân tích kỹ lưỡng nội dung và từ khóa của từng mục dưới đây, trả về một mảng JSON chứa kết quả phân loại cho từng mục nhập.
@@ -981,12 +1046,8 @@ function fixEntryConfig(uid) {
   log(`Aligning entry "${entry.comment}" to Group ${group}...`);
 
   // 1. Update Strategy
-  if (group === 2) {
-    // Keep user strategy if Constant/Normal, but we can set to true as default for safety
-    if (orig.constant === undefined) orig.constant = true;
-  } else {
-    orig.constant = rule.constant;
-  }
+  orig.constant = rule.constant;
+  orig.selective = !rule.constant;
 
   // 2. Update Position, Depth, Role, Order based on Card vs Lorebook
   if (activeFile.type === 'card') {
@@ -996,26 +1057,31 @@ function fixEntryConfig(uid) {
 
     if (!orig.extensions) orig.extensions = {};
     orig.extensions.position = cardRule.extPosition;
-    
-    if (group === 1 || group === 2) {
-      orig.extensions.depth = cardRule.depth;
+    orig.extensions.depth = cardRule.depth;
+
+    if (cardRule.role !== null) {
       orig.extensions.role = cardRule.role;
+    } else if (orig.extensions.role !== undefined) {
+      delete orig.extensions.role;
     }
   } else {
     // Standalone Lorebook
     const lbRule = rule.lorebook;
     orig.position = lbRule.position;
     orig.order = lbRule.order;
-    orig.constant = orig.constant !== undefined ? orig.constant : lbRule.constant;
-    
-    if (group === 1 || group === 2) {
-      orig.depth = lbRule.depth;
+    orig.constant = rule.constant;
+    orig.depth = lbRule.depth;
+
+    if (lbRule.role !== null) {
       orig.role = lbRule.role;
+    } else if (orig.role !== undefined) {
+      delete orig.role;
     }
   }
 
   // Update current config mirror
   entry.currentConfig.constant = orig.constant;
+  entry.currentConfig.selective = orig.selective;
   entry.currentConfig.order = orig.insertion_order !== undefined ? orig.insertion_order : orig.order;
   entry.currentConfig.position = orig.position;
   entry.currentConfig.extPosition = orig.extensions?.position !== undefined ? orig.extensions.position : null;

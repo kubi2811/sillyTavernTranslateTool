@@ -20,26 +20,26 @@ interface SettingsModalProps {
 const DEFAULT_WORLDBUILDING_STEPS: WorldbuildingStep[] = [
   {
     id: 'step_1',
-    name: 'Bước 1: Hệ thống sức mạnh & Luật cơ bản',
-    prompt: 'Hãy phân tích kĩ lưỡng toàn bộ tài liệu Wiki được cung cấp để tìm kiếm các học thuyết ma pháp, định luật, hệ thống cấp bậc, vũ khí và tu pháp cốt lõi. Tạo ra các Lorebook Entry chi tiết tuyệt đối cho Nhóm 1 (Hệ Thống Sức Mạnh Cốt Lõi) với Depth 0 và Order 900.',
+    name: 'Bước 1: Thế giới quan & Tổng cương',
+    prompt: 'Hãy phân tích kĩ lưỡng toàn bộ tài liệu Wiki được cung cấp để tìm kiếm bối cảnh lịch sử lập quốc, tôn giáo vĩ mô, các học thuyết ma pháp, định luật sức mạnh cốt lõi, quy tắc thế giới vĩ mô. Tạo ra các Lorebook Entry chi tiết cho Nhóm 1 (Thế giới quan & Tổng cương) với Vị trí before_char, Thứ tự Order 1-3, và Chiến lược Constant (constant: true, selective: false).',
     enabled: true
   },
   {
     id: 'step_2',
-    name: 'Bước 2: Thế giới quan, Quốc gia & Chủng tộc',
-    prompt: 'Trích xuất và thiết lập bối cảnh lịch sử bối cảnh, các quốc gia, chủng tộc, quy luật sinh thái học vĩ mô từ tài liệu. Tạo ra các Lorebook Entry cho Nhóm 2 (Thế Giới Quan) với Depth 4 và Order 800.',
+    name: 'Bước 2: Phe phái, Tổ chức & Xem lướt nhân vật',
+    prompt: 'Trích xuất thông tin về các phe phái chính trị, gia tộc, bang hội, tổ chức xã hội và danh sách toàn bộ nhân vật có mặt trong thế giới. Tạo ra mục Xem lướt nhân vật & thế lực ở Nhóm 2 với Vị trí before_char, Thứ tự Order 4, và Chiến lược Constant (constant: true, selective: false).',
     enabled: true
   },
   {
     id: 'step_3',
-    name: 'Bước 3: Bang phái, Tổ chức & Địa danh bối cảnh',
-    prompt: 'Dựa trên tài liệu Wiki, hãy mổ xẻ thông tin về các phe phái chính trị, gia tộc bí cảnh, bang hội và các địa điểm kiến trúc nổi tiếng. Hãy tạo các mục ở Nhóm 4 (Phe Phái) và Nhóm 5 (Địa Điểm) tương ứng.',
+    name: 'Bước 3: Cảnh vật & Chi tiết địa danh',
+    prompt: 'Dựa trên tài liệu Wiki, hãy trích xuất các địa danh vật lý, phòng ốc, dinh thự, live house, cảnh quan chi tiết. Tạo các mục chi tiết ở Nhóm 4 (Cảnh vật & Chi tiết sự kiện) với Vị trí after_char, Thứ tự Order 80, và Chiến lược Selective (constant: false, selective: true) có scan_depth = 2.',
     enabled: true
   },
   {
     id: 'step_4',
     name: 'Bước 4: Hồ sơ nhân vật chi tiết & Chống bỏ sót mổ xẻ 100%',
-    prompt: 'Đồng bộ hóa 100% hồ sơ tất cả nhân vật và sinh vật được xuất hiện trong wiki, bao gồm ngoại hình chi tiết, tính cách, chỉ số vật lý hay kỹ năng chiến đấu. Hãy rà soát lại toàn bộ Wiki đã đọc để đảm bảo mổ xẻ kĩ lưỡng 100% thông tin không bị sót bất kì yếu tố nào trước khi báo cáo hoàn thành.',
+    prompt: 'Đồng bộ hóa 100% hồ sơ của các nhân vật chính/cốt lõi và tài liệu NPC phụ có mặt trong tài liệu Wiki. Tạo ra các mục ở Nhóm 3 (Chi tiết nhân vật cốt lõi - Order 99) hoặc Nhóm 5 (Tài liệu NPC - Order 100) tương ứng ở Vị trí after_char, Chiến lược Selective (constant: false, selective: true) có scan_depth = 2. Rà soát lại toàn bộ Wiki để đảm bảo mổ xẻ kĩ lưỡng 100% thông tin không bị sót bất kì yếu tố nào.',
     enabled: true
   }
 ];
@@ -58,7 +58,7 @@ const DEFAULT_AI_PROMPTS: AIPromptBlock[] = [
     title: 'PROMPT 2: HỆ THỐNG',
     content: `[HỆ THỐNG SỨC MẠNH & LUẬT VẬT LÝ]
 - Đóng vai trò là Đại Pháp Sư / Chuyên Gia Thiết Kế Game. Trích xuất toàn bộ hệ thống cấp bậc sức mạnh, các định luật ma pháp, thuộc tính vật lý, các cấm kỹ và quy tắc tu luyện.
-- Thiết lập các entry ở vị trí at_depth_system, depth 0, order 900, và bật prevent_recursion: true.
+- Thiết lập các entry nền tảng ở vị trí before_char, order 1-3, constant: true, selective: false; chỉ dùng at_depth_system depth 0 cho mục "Giải thích lần hai" sửa hiểu lầm trực tiếp.
 - Mô tả cực kỳ logic, tránh mơ hồ và mâu thuẫn.`
   },
   {
@@ -90,7 +90,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!s.aiPrompts || s.aiPrompts.length === 0) {
       s.aiPrompts = JSON.parse(JSON.stringify(DEFAULT_AI_PROMPTS));
     }
-    // "Hướng dẫn tổng" — gộp 2 tab cũ thành 1 text bự, mặc định = Cấu hình Worldbook.txt.
+    // "Hướng dẫn tổng" — gộp 2 tab cũ thành 1 text bự, mặc định = Cấu hình Worldbook 2.txt.
     if (!s.masterInstruction || !s.masterInstruction.trim()) {
       s.masterInstruction = DEFAULT_MASTER_INSTRUCTION;
     }
@@ -725,9 +725,9 @@ ${master}`;
                 <button
                   onClick={() => setFormData(prev => ({ ...prev, masterInstruction: DEFAULT_MASTER_INSTRUCTION }))}
                   className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors py-0.5 px-1.5 bg-indigo-950/20 border border-indigo-500/20 rounded font-sans flex items-center gap-1"
-                  title="Khôi phục về nội dung Cấu hình Worldbook mặc định"
+                  title="Nạp bộ rule mặc định từ Cấu hình Worldbook 2.txt"
                 >
-                  <RefreshCw size={11} /> Khôi phục mặc định
+                  <RefreshCw size={11} /> Nạp rule Worldbook 2
                 </button>
               </div>
               <textarea
