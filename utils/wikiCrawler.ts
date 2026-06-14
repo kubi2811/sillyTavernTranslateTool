@@ -49,6 +49,8 @@ export const META_FILTERS: MetaFilterCategory[] = [
     keywords: ['review', 'reviews', 'rating', 'ratings', 'reception', 'critical reception'] },
   { key: 'bts', label: 'Hậu trường / Trivia / Production',
     keywords: ['behind the scenes', 'behind-the-scenes', 'making of', 'making-of', 'trivia', 'production note', 'production notes', 'real-world', 'real world'] },
+  { key: 'gallery', label: 'Gallery / Image Gallery / Media',
+    keywords: ['gallery', 'image gallery', 'images', 'screenshots', 'media gallery'] },
   { key: 'noncanon', label: 'Non-canon / Fanfic / Fanart / Doujin',
     keywords: ['non-canon', 'noncanon', 'non canon', 'fanon', 'fanfiction', 'fan fiction', 'fan-fiction', 'fanfic', 'fanart', 'fan art', 'fan-art', 'doujin', 'doujinshi', 'parody', 'what if', 'what-if'] },
 ];
@@ -119,6 +121,17 @@ export function isWikiItemLoreValid(title: string, url: string | undefined, orig
   const cleanTitle = title.toLowerCase().trim();
   const cleanUrl = url ? url.toLowerCase().trim() : '';
 
+  if (
+    cleanTitle.startsWith('#') ||
+    cleanTitle.includes('#|') ||
+    cleanTitle === 'more' ||
+    cleanTitle === 'other characters' ||
+    cleanUrl.includes('/wiki/%23') ||
+    cleanUrl.includes('/wiki/#')
+  ) {
+    return false;
+  }
+
   // 1. ISOLATE DOMAIN (Cross-wiki leak blocker):
   if (cleanUrl.startsWith('http')) {
     try {
@@ -151,6 +164,7 @@ export function isWikiItemLoreValid(title: string, url: string | undefined, orig
     'community dashboard', 'wiki rules', 'wiki moderator', 'moderator notice', 'admin notice', 'site rules',
     'policy guidelines', 'copyright notice', 'copyrights', 'about fandom', 'about wikia', 'store rules',
     'wiki-administration',
+    'other characters',
     'báo cáo vi phạm'
   ];
   // Lưu ý: các cụm meta nội dung (hậu trường/real-world/author/fanart...) đã được

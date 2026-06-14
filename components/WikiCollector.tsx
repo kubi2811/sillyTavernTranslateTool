@@ -469,9 +469,9 @@ export const WikiCollector: React.FC<WikiCollectorProps> = ({
 
       setMainPage(mergedPage);
 
-      // Flat links fallback (first 1500 options across all pages)
+      // Flat links fallback: keep every filtered live page. Do not silently cap here;
+      // the crawl task list below is the single source of truth for harvested pages.
       const formattedSubPages = consolidatedLinks
-        .slice(0, 1500)
         .map(link => ({ title: link, selected: true }));
       setSubPages(formattedSubPages);
 
@@ -631,12 +631,6 @@ export const WikiCollector: React.FC<WikiCollectorProps> = ({
       setStep('analyzed');
       setIsCrawling(false);
       return;
-    }
-
-    // Safety limit raised significantly supporting up to 1500 deep nodes
-    const SAFETY_CAP = 1500;
-    if (selectedTargets.length > SAFETY_CAP) {
-      selectedTargets = selectedTargets.slice(0, SAFETY_CAP);
     }
 
     const tasks: CrawlTask[] = selectedTargets.map(target => ({
