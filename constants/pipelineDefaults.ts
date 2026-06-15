@@ -3,10 +3,10 @@
 import { WorldbuildingStep, AIPromptBlock } from '../types';
 
 // Tăng số này mỗi khi đổi bộ mặc định → App.tsx tự migrate cấu hình cũ.
-export const PIPELINE_VERSION = 2;
+export const PIPELINE_VERSION = 3;
 
 export const DEFAULT_STEPS: WorldbuildingStep[] = [
-  { id: 'step_1', enabled: true, name: `Bước 1: Thế Giới Quan & Thiết lập <user> (META)`, prompt: `[LUỒNG XỬ LÝ DỮ LIỆU]: Thu thập toàn diện -> Lọc rác nghiêm ngặt -> Trình bày chuẩn hóa.
+  { id: 'step_1', enabled: true, singleton: true, name: `Bước 1: Thế Giới Quan & Thiết lập <user> (META)`, prompt: `[LUỒNG XỬ LÝ DỮ LIỆU]: Thu thập toàn diện -> Lọc rác nghiêm ngặt -> Trình bày chuẩn hóa.
 
 [NHIỆM VỤ CHÍNH]: Quét toàn bộ nội dung từ link Wiki được cung cấp. Trích xuất và tạo ra ĐÚNG 2 ENTRY nền tảng: THẾ GIỚI QUAN và META.
 

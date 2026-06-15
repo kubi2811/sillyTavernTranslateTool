@@ -64,6 +64,10 @@ function buildSettings(parsed: any): OpenAISettings {
   if ((merged.pipelineVersion ?? 0) < PIPELINE_VERSION) {
     if (!merged.steps || merged.steps.length < 5) {
       merged.steps = JSON.parse(JSON.stringify(DEFAULT_STEPS));
+    } else if (merged.steps[0] && merged.steps[0].singleton === undefined) {
+      // Đã có ≥5 bước (user v2): vá cờ singleton cho BƯỚC ĐẦU (Thế Giới Quan+META)
+      // mà không phá tùy biến prompt của user.
+      merged.steps[0].singleton = true;
     }
     if (!merged.aiPrompts || merged.aiPrompts.length < 5) {
       merged.aiPrompts = JSON.parse(JSON.stringify(DEFAULT_PROMPTS));

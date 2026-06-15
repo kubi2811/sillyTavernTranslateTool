@@ -29,6 +29,8 @@ const SOFT_CHAR_SUBPAGE = /\/(chronology|history)\b/i;
 
 const NON_PERSON = /\b(wiki|page|category|template|user|file|help|index|list|main|portal|navigation|sandbox|module)\b/i;
 const NON_NAME_WORDS = /\b(me|up|the|and|or|of|in|on|at|for|to|from|with)\b/i;
+// Trang chương/tập truyện (manga/anime) → dòng thời gian, KHÔNG để trôi vào worldview.
+const CHAPTERLIKE = /^(chapter|chapitre|episode|ep|vol|volume|arc|ch|tập|chương|hồi)\b\.?\s*\d+/i;
 
 export function parentTitle(title: string): string {
   const i = title.indexOf('/');
@@ -90,6 +92,7 @@ export function heuristicBucket(title: string): WikiBucketKey {
   const t = String(title || '').trim();
   if (!t) return 'worldview';
   if (/\(disambiguation\)/i.test(t)) return 'worldview';
+  if (CHAPTERLIKE.test(t)) return 'timeline';           // "Chapter 371", "Episode 12"...
   if (isCharacterSubpageTitle(t)) return 'characters';
 
   const n = norm(t);

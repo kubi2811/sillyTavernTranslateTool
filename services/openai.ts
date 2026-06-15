@@ -1652,7 +1652,7 @@ const categorizeTitlesBatch = async (
 - "characters": người/nhân vật/thực thể sống/thần/NPC. PHẦN LỚN tiêu đề là TÊN RIÊNG CỦA NGƯỜI (vd "Sirris Azenthem", "Muden Nidelk", "Han Isratte", "Jenna Shirai") → đây là characters.
 - "locations": địa danh, quốc gia, thành phố, vùng đất, tầng tháp, công trình, chiều không gian.
 - "systems": hệ thống sức mạnh, ma thuật, kỹ năng, cấp bậc, gacha, xếp hạng sao, kinh tế, quy tắc, cơ chế.
-- "timeline": sự kiện, mốc lịch sử, chiến tranh, niên đại, dòng thời gian.
+- "timeline": sự kiện, mốc lịch sử, chiến tranh, niên đại, dòng thời gian, VÀ trang chương/tập truyện ("Chapter 371", "Episode 12", "Volume 3").
 - "worldview": thuật ngữ/khái niệm/chủng tộc/phe phái/vật phẩm/lore tổng quát KHÔNG thuộc 4 nhóm trên.
 
 QUY TẮC QUAN TRỌNG:

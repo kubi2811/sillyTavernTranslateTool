@@ -176,24 +176,19 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
     setInput('');
 
     // ─── CHỐNG TRÙNG + COMMIT TĂNG DẦN (dùng chung cho cả pipeline) ───
-    // Tên đã có (chuẩn hóa) để mảnh sau không tạo lại mục mảnh trước đã tạo.
     const normName = (c?: string) => String(c || '')
       .toLowerCase().replace(/\s+/g, ' ').trim();
-    // "Singleton": mục TỔNG QUAN chỉ nên có DUY NHẤT 1 (Thế Giới Quan, META).
-    // Bước 1 chạy nhiều mảnh song song → mỗi mảnh đẻ 1 bản → phải gộp về 1.
-    const SINGLETON_TAGS = ['thế giới quan', 'tổng cương', 'worldview', 'meta_setup', 'meta setup', '[meta]', 'world setup'];
-    const singletonKey = (c?: string): string | null => {
-      const n = normName(c).replace(/[[\]()]/g, ' ').replace(/\s+/g, ' ').trim();
-      for (const t of SINGLETON_TAGS) {
-        if (n.startsWith(t)) return t.replace(/[_\s]/g, ''); // "meta_setup"=="meta setup"
-      }
-      return null;
-    };
+    // Phát hiện mục TỔNG QUAN theo NỘI DUNG tiêu đề (bắt mọi cách đặt tên, kể cả khi
+    // tên bắt đầu bằng tên wiki như "Solo Leveling - Thế Giới Quan"). Toàn lorebook
+    // chỉ giữ DUY NHẤT 1 Thế Giới Quan + 1 META.
+    const isWorldviewTitle = (c?: string) => /thế giới quan|worldview|tổng cương/i.test(c || '');
+    const isMetaTitle = (c?: string) => /meta[_\s]?setup|thiết lập\s*meta|user\s*setup|<user>|\[meta\]|vai trò master/i.test(c || '');
     const committedNames = new Set<string>();
-    const committedSingletons = new Set<string>(); // tag singleton đã có 1 bản → chặn bản thứ 2
+    let hasWorldview = false, hasMeta = false;
     for (const e of currentLorebookState.entries) {
       const nm = normName(e.comment); if (nm) committedNames.add(nm);
-      const sk = singletonKey(e.comment); if (sk) committedSingletons.add(sk);
+      if (isWorldviewTitle(e.comment)) hasWorldview = true;
+      if (isMetaTitle(e.comment)) hasMeta = true;
     }
 
     // Commit ĐỒNG BỘ (JS đơn luồng ⇒ không cần Lock): dedup + áp dụng NGAY mảnh vừa xong
@@ -203,10 +198,13 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
       for (const act of acts) {
         const comment = act.data?.comment;
         const nm = normName(comment);
-        const sk = singletonKey(comment);
-        if (sk) {
-          if (committedSingletons.has(sk)) continue; // đã có 1 mục tổng quan này → bỏ bản trùng
-          committedSingletons.add(sk);
+        // Singleton: chỉ giữ 1 Thế Giới Quan + 1 META cho TOÀN lorebook (ưu tiên bản đầu).
+        if (isWorldviewTitle(comment)) {
+          if (hasWorldview) continue;
+          hasWorldview = true;
+        } else if (isMetaTitle(comment)) {
+          if (hasMeta) continue;
+          hasMeta = true;
         }
         if (nm) {
           if (committedNames.has(nm)) continue; // trùng tên → bỏ
@@ -234,8 +232,15 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
         const chunkSize = 15000;
         const fullText = attachedDoc.content || '';
         const chunks: string[] = [];
-        for (let s = 0; s < fullText.length; s += chunkSize) {
-          chunks.push(fullText.slice(s, s + chunkSize));
+        // BƯỚC SINGLETON (Thế Giới Quan + META): KHÔNG chia mảnh — gửi TOÀN tài liệu
+        // trong 1 lượt để model tạo đúng 2 mục tổng quan (không mỗi mảnh đẻ 1 bản → hết trùng).
+        // Gemini Pro context 2M nên 1 lượt 200K+ ký tự vẫn dư sức.
+        if (currentStep.singleton) {
+          chunks.push(fullText.slice(0, 600000));
+        } else {
+          for (let s = 0; s < fullText.length; s += chunkSize) {
+            chunks.push(fullText.slice(s, s + chunkSize));
+          }
         }
         if (chunks.length === 0) chunks.push('');
 
@@ -249,10 +254,12 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
         // Reset bộ đếm mảnh cho bước này → progress bar phụ + badge luồng cập nhật ngay.
         setChunkStats({ done: 0, total: chunks.length, running: 0, model: primaryModel });
 
-        setPipelineLogs(prev => [...prev, `[Hệ thống] Bước ${i + 1}: ${chunks.length} phân mảnh • chạy song song theo RPM=${primaryRpm} (model chính: ${primaryModel})`]);
+        setPipelineLogs(prev => [...prev, currentStep.singleton
+          ? `[Hệ thống] Bước ${i + 1} (TỔNG QUAN): chạy 1 LƯỢT trên toàn tài liệu → tạo đúng mục nền tảng, không trùng.`
+          : `[Hệ thống] Bước ${i + 1}: ${chunks.length} phân mảnh • chạy song song theo RPM=${primaryRpm} (model chính: ${primaryModel})`]);
 
         const masterGuide = (settings.masterInstruction || '').trim();
-        const buildChunkPrompt = (chunk: string, ci: number) => `[Quy trình tự động - ${currentStep.name} • Phân mảnh ${ci + 1}/${chunks.length}]
+        const buildChunkPromptNormal = (chunk: string, ci: number) => `[Quy trình tự động - ${currentStep.name} • Phân mảnh ${ci + 1}/${chunks.length}]
 
 [CHỐNG SKIP] Không được bỏ qua. Trích xuất đầy đủ, KHÔNG bịa thông tin ngoài dữ liệu.
 
@@ -273,6 +280,29 @@ YÊU CẦU:
 1. Trích xuất 100% thực thể HỢP LỆ với bước này có trong phân mảnh → action {"type":"create","data":{...}}.
 2. Nếu phân mảnh không có dữ liệu phù hợp, trả "actions": [].
 3. Luôn đặt "status": "DONE" (mỗi phân mảnh xử lý gọn trong 1 lượt).`;
+
+        // Bước SINGLETON: 1 lượt trên toàn tài liệu → ép tạo ĐÚNG số mục nền tảng, không tách phần/trùng.
+        const buildChunkPromptSingleton = (chunk: string, _ci: number) => `[Quy trình tự động - ${currentStep.name} • TOÀN BỘ tài liệu trong 1 lượt]
+
+[LOẠI TRỪ DẬP TRÙNG] Tên entry đã có: ${priorNames || 'chưa có'}.
+${masterGuide ? `
+=== HƯỚNG DẪN TỔNG (quy tắc CHUNG) ===
+${masterGuide}
+` : ''}
+Nhiệm vụ (BẮT BUỘC TUÂN THỦ SỐ LƯỢNG):
+${currentStep.prompt}
+
+Tên tài liệu Wiki: ${attachedDoc.name}
+
+Toàn bộ nội dung tài liệu:
+${chunk}
+
+YÊU CẦU:
+1. CHỈ tạo các entry NỀN TẢNG bước này quy định (đúng 1 Thế Giới Quan + 1 META). TUYỆT ĐỐI KHÔNG tách thành nhiều phần ("Phần 2/3/4") hay nhiều bản trùng.
+2. Mỗi loại tổng quan CHỈ 1 entry DUY NHẤT, gói trọn nội dung trong đó.
+3. Luôn đặt "status": "DONE".`;
+
+        const buildChunkPrompt = currentStep.singleton ? buildChunkPromptSingleton : buildChunkPromptNormal;
 
         // Factory: 1 task mổ xẻ 1 mảnh bằng MODEL chỉ định (Pro hoặc Flash).
         // COMMIT NGAY khi mảnh xong (qua commitActions đồng bộ) → entry hiện dần + dedup tức thì.

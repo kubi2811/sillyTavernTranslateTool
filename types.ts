@@ -86,6 +86,7 @@ export interface WorldbuildingStep {
   name: string;
   prompt: string;
   enabled: boolean;
+  singleton?: boolean; // true = bước "tổng quan" (Thế Giới Quan + META): chạy 1 LẦN trên toàn tài liệu, KHÔNG chia mảnh → không sinh trùng
 }
 
 export interface AIModel {
