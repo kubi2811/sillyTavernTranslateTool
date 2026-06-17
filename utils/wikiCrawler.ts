@@ -34,25 +34,37 @@ export interface MetaFilterCategory {
   keywords: string[];
 }
 
+// Bộ lọc META (nội dung KHÔNG phục vụ roleplay). Tất cả mặc định BỎ (keptMeta=[]).
+// Khớp theo TIÊU ĐỀ trang + word-boundary. Nếu loại nào quét quá tay, người dùng tick "GIỮ LẠI".
 export const META_FILTERS: MetaFilterCategory[] = [
   { key: 'author', label: 'Tác giả / Họa sĩ / Người viết',
-    keywords: ['author', 'authors', 'artist', 'illustrator', 'illustration', 'mangaka', 'writer', 'written by', 'drawn by', 'creator', 'art by'] },
+    keywords: ['author', 'authors', 'artist', 'illustrator', 'illustration', 'mangaka', 'writer', 'written by', 'drawn by', 'creator', 'art by', 'character designer', 'original creator', 'created by', 'storyboard', 'scenario writer'] },
   { key: 'publisher', label: 'Nhà phát hành / Sản xuất / Studio',
-    keywords: ['publisher', 'publishing', 'producer', 'production', 'studio', 'distributor', 'imprint', 'serialization'] },
+    keywords: ['publisher', 'publishing', 'producer', 'production company', 'productions', 'animation studio', 'studio', 'distributor', 'imprint', 'serialization', 'serialized in'] },
   { key: 'release', label: 'Năm / Ngày phát hành',
-    keywords: ['release date', 'release year', 'released', 'publication date', 'run date', 'air date', 'airdate', 'premiere'] },
+    keywords: ['release date', 'release year', 'released on', 'publication date', 'run date', 'air date', 'airdate', 'premiere', 'first aired', 'broadcast history'] },
+  { key: 'episodes', label: 'Danh sách Tập / Chương / Volume',
+    keywords: ['episode list', 'list of episodes', 'episodes', 'episode guide', 'chapter list', 'list of chapters', 'chapters', 'volume list', 'list of volumes', 'volumes', 'manga volumes', 'light novel volumes', 'tankobon'] },
   { key: 'seiyuu', label: 'Diễn viên lồng tiếng (Seiyuu) / Cast',
-    keywords: ['voice actor', 'voice actress', 'voice cast', 'seiyuu', 'voiced by', 'english dub', 'japanese dub', 'voice actors'] },
+    keywords: ['voice actor', 'voice actress', 'voice cast', 'seiyuu', 'voiced by', 'english dub', 'japanese dub', 'voice actors', 'cast list', 'casting'] },
   { key: 'ost', label: 'Nhạc phim / OST / Bài hát',
-    keywords: ['soundtrack', 'ost', 'original soundtrack', 'theme song', 'opening theme', 'ending theme', 'character song', 'insert song', 'image song', 'discography'] },
-  { key: 'reviews', label: 'Đánh giá / Reception',
-    keywords: ['review', 'reviews', 'rating', 'ratings', 'reception', 'critical reception'] },
-  { key: 'bts', label: 'Hậu trường / Trivia / Production',
-    keywords: ['behind the scenes', 'behind-the-scenes', 'making of', 'making-of', 'trivia', 'production note', 'production notes', 'real-world', 'real world'] },
-  { key: 'gallery', label: 'Gallery / Image Gallery / Media',
-    keywords: ['gallery', 'image gallery', 'images', 'screenshots', 'media gallery'] },
-  { key: 'noncanon', label: 'Non-canon / Fanfic / Fanart / Doujin',
-    keywords: ['non-canon', 'noncanon', 'non canon', 'fanon', 'fanfiction', 'fan fiction', 'fan-fiction', 'fanfic', 'fanart', 'fan art', 'fan-art', 'doujin', 'doujinshi', 'parody', 'what if', 'what-if'] },
+    keywords: ['soundtrack', 'ost', 'original soundtrack', 'theme song', 'opening theme', 'ending theme', 'character song', 'insert song', 'image song', 'discography', 'music album'] },
+  { key: 'reviews', label: 'Đánh giá / Doanh số / Giải thưởng',
+    keywords: ['review', 'reviews', 'rating', 'ratings', 'reception', 'critical reception', 'sales', 'box office', 'award', 'awards', 'popularity poll', 'popularity'] },
+  { key: 'bts', label: 'Hậu trường / Trivia / Phát triển',
+    keywords: ['behind the scenes', 'behind-the-scenes', 'making of', 'making-of', 'trivia', 'production note', 'production notes', 'real-world', 'real world', 'development', 'concept art', 'early design', 'interview', "author's note", 'afterword', 'commentary'] },
+  { key: 'gallery', label: 'Gallery / Hình ảnh / Media',
+    keywords: ['gallery', 'image gallery', 'images', 'screenshots', 'media gallery', 'artwork', 'wallpaper', 'official art'] },
+  { key: 'merch', label: 'Merchandise / Figure / Hàng hóa',
+    keywords: ['merchandise', 'merch', 'figure', 'figurine', 'nendoroid', 'figma', 'plush', 'plushie', 'keychain', 'collectible', 'merchandising'] },
+  { key: 'adaptation', label: 'Live-action / Sân khấu / Drama CD',
+    keywords: ['live action', 'live-action', 'stage play', 'stage musical', 'musical', 'drama cd', 'audio drama', 'radio drama', 'novelization'] },
+  { key: 'gameplay', label: 'Gameplay meta (tier list, patch, banner, guide)',
+    keywords: ['tier list', 'patch notes', 'changelog', 'update history', 'version history', 'banner history', 'gacha rate', 'drop rate', 'walkthrough', 'farming guide', 'beginner guide', 'team comp', 'best build', 'rerun'] },
+  { key: 'noncanon', label: 'Non-canon / Fanfic / Fanart / Crossover',
+    keywords: ['non-canon', 'noncanon', 'non canon', 'fanon', 'fanfiction', 'fan fiction', 'fan-fiction', 'fanfic', 'fanart', 'fan art', 'fan-art', 'doujin', 'doujinshi', 'parody', 'what if', 'what-if', 'crossover event', 'april fools'] },
+  { key: 'wikimeta', label: 'Meta Wiki (Disambig, Category, Template, List, Community...)',
+    keywords: ['meta', 'disambiguation', 'disambig', 'maintenance', 'stub', 'candidates for deletion', 'sandbox', 'policy', 'guideline', 'manual of style', 'community', 'wiki rules', 'navigation', 'sitemap', 'glossary', 'list of', 'index of', 'recent changes', 'message wall', 'subpages', 'category:', 'template:', 'user blog:', 'mediawiki:', 'module:', 'portal:', 'forum:', 'special:', 'help:', 'project:', 'file:'] },
 ];
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
