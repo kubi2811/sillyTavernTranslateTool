@@ -359,9 +359,8 @@ const App: React.FC = () => {
             cleanKeys = Array.from(new Set(cleanKeys));
           }
 
-          // Default template
+          // Default template (uid được ép lại SAU spread bên dưới để chống AI ghi đè)
           const template: LorebookEntry = {
-            uid: newUid,
             secondary_keys: [],
             comment: 'New Entry',
             content: '',
@@ -385,6 +384,7 @@ const App: React.FC = () => {
             probability: 0,
             enabled: true,
             ...action.data, // Spread AI data over template
+            uid: newUid, // ÉP uid SAU spread → AI lỡ trả uid/uid trùng không phá selection trong app
             key: cleanKeys, // Enforce cleaned keys
             prevent_recursion: true, // Force recursion prevention per guide
             non_recursable: true // Force recursion prevention per guide

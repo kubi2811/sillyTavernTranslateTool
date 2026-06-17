@@ -212,6 +212,8 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
       for (const act of acts) {
         if (!act.data) continue;
         const comment = act.data.comment;
+        // 0) Bỏ entry RÁC: không có nội dung thực (tránh mục trống vô dụng trong lorebook).
+        if (!act.data.content || act.data.content.trim().length < 10) continue;
         // 1) Singleton tổng quan: chỉ giữ 1 Thế Giới Quan + 1 META.
         if (isWorldviewTitle(comment)) {
           if (hasWorldview) continue;
