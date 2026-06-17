@@ -42,6 +42,8 @@ const DEFAULT_SETTINGS: OpenAISettings = {
   mixMode: true,
   // Super Mix: mặc định TẮT (chỉ bật khi cần tốc độ tối đa, chấp nhận phân loại thô hơn).
   superMix: false,
+  // Bước 6 gộp trùng ngữ nghĩa: mặc định BẬT.
+  semanticDedup: true,
   // "Hướng dẫn tổng" mặc định = nội dung file Cấu hình Worldbook 2.txt (gộp 2 tab cũ thành 1 text bự).
   masterInstruction: DEFAULT_MASTER_INSTRUCTION,
 };
@@ -246,6 +248,40 @@ const App: React.FC = () => {
       ...prev,
       entries: prev.entries.map(e => e.uid === updated.uid ? updated : e)
     }));
+  };
+
+  // Bước 6: gộp các nhóm trùng NGỮ NGHĨA (Flash đã xác nhận). Mỗi group = các comment
+  // cùng 1 thực thể → giữ bản content DÀI NHẤT, gộp keys, xóa các bản còn lại. Trả số đã xóa.
+  const handleMergeDuplicates = (groups: string[][]): number => {
+    if (!groups || groups.length === 0) return 0;
+    const byComment = new Map<string, LorebookEntry[]>();
+    for (const e of lorebook.entries) {
+      const c = (e.comment || '').trim();
+      const a = byComment.get(c); if (a) a.push(e); else byComment.set(c, [e]);
+    }
+    const toRemove = new Set<number>();
+    const keyUpdates = new Map<number, string[]>();
+    for (const group of groups) {
+      const members = Array.from(new Set(group.flatMap(n => byComment.get(String(n).trim()) || [])));
+      if (members.length < 2) continue;
+      members.sort((a, b) => (b.content || '').length - (a.content || '').length); // giữ bản dài nhất
+      const keep = members[0];
+      const keys = new Set<string>(keep.key || []);
+      for (let i = 1; i < members.length; i++) {
+        (members[i].key || []).forEach(k => keys.add(k));
+        toRemove.add(members[i].uid);
+      }
+      keyUpdates.set(keep.uid, Array.from(keys));
+    }
+    if (toRemove.size === 0) return 0;
+    setLorebook(prev => ({
+      ...prev,
+      entries: prev.entries
+        .filter(e => !toRemove.has(e.uid))
+        .map(e => keyUpdates.has(e.uid) ? { ...e, key: keyUpdates.get(e.uid)! } : e)
+    }));
+    if (selectedUid !== null && toRemove.has(selectedUid)) setSelectedUid(null);
+    return toRemove.size;
   };
 
   // Xóa TẤT CẢ mục khỏi giao diện (chỉ dọn lorebook đang hiển thị + bộ nhớ tự lưu;
@@ -646,6 +682,7 @@ const App: React.FC = () => {
                       messages={chatMessages}
                       setMessages={setChatMessages}
                       onApplyActions={handleWorldbuildingActions}
+                      onMergeDuplicates={handleMergeDuplicates}
                       wikiDataToFeed={wikiDataToFeed}
                       onClearWikiData={() => setWikiDataToFeed(null)}
                        pipelineToAnalyze={pipelineToAnalyze}

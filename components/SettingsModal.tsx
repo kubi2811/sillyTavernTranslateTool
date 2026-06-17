@@ -360,6 +360,26 @@ ${master}`;
                       <br/><span className="text-orange-300/80">⚠️ Đánh đổi: AI làm nhiều việc/lượt nên phân loại có thể thô hơn so với quét tách từng nhóm. Bật khi cần tốc độ tối đa.</span>
                     </p>
                   </div>
+
+                  {/* ── BƯỚC 6: GỘP TRÙNG NGỮ NGHĨA ── */}
+                  <div className="mt-2 pt-2 border-t border-indigo-500/15">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <div className="relative flex items-center">
+                        <input
+                          type="checkbox" className="peer sr-only"
+                          checked={formData.semanticDedup !== false}
+                          onChange={(e) => setFormData({ ...formData, semanticDedup: e.target.checked })}
+                        />
+                        <div className="w-11 h-6 bg-slate-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-emerald-500 peer-checked:to-teal-500"></div>
+                      </div>
+                      <span className="text-sm font-bold text-emerald-100 flex items-center gap-1.5">
+                        🧹 Bước 6: Gộp trùng ngữ nghĩa
+                      </span>
+                    </label>
+                    <p className="text-[10.5px] text-slate-400 leading-relaxed pl-[3.7rem] mt-1">
+                      Sau khi sinh xong, dùng <b>model phụ (Flash)</b> rà các mục <b>cùng 1 thực thể nhưng khác tên</b> (vd "Keiko's Mother" = "Mrs. Yukimura") rồi gộp (giữ bản dài nhất, gộp từ khóa). Bắt loại trùng mà so-chữ không thấy. Cần bật Model Phụ.
+                    </p>
+                  </div>
                 </div>
 
                 <div>

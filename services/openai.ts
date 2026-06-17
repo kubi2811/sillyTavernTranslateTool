@@ -1765,3 +1765,66 @@ export const categorizeTitlesAI = async (
 
   return reconcileSubpages(completed);
 };
+
+// ─── BƯỚC 6: XÁC NHẬN TRÙNG NGỮ NGHĨA (Flash) ───────────────────────────────
+// Nhận các CỤM nghi ngờ (đã pre-filter cục bộ theo key chung), hỏi Flash cụm nào
+// THỰC SỰ là cùng 1 thực thể (vd "Keiko's Mother" == "Mrs. Yukimura"), trả về các
+// nhóm comment cần GỘP. Chia lô + đa luồng RPM (chạy vài lượt cho bắt kỹ).
+const confirmDuplicateClustersBatch = async (
+  clusters: { comment: string; keys: string[] }[][],
+  settings: OpenAISettings,
+  modelOverride?: string
+): Promise<string[][]> => {
+  let url = settings.baseUrl.endsWith('/') ? settings.baseUrl : `${settings.baseUrl}/`;
+  url = url.includes('/v1/') ? `${url}chat/completions` : `${url}v1/chat/completions`;
+
+  const system = `Bạn là bộ KIỂM TRA TRÙNG LẶP thực thể trong lorebook. Dưới đây là các CỤM tên có thể trỏ về CÙNG 1 thực thể (kèm từ khóa).
+Với MỖI cụm, tìm các tên CHẮC CHẮN là CÙNG MỘT thực thể (cùng 1 người/nơi/vật/khái niệm). Ví dụ "Keiko's Mother" và "Mrs. Yukimura" đều là mẹ của Keiko → trùng.
+TUYỆT ĐỐI KHÔNG gộp 2 thực thể KHÁC NHAU dù tên giống (vd mẹ vs con gái, 2 NPC khác nhau cùng trường).
+CHỈ trả JSON: {"groups": [["tên A","tên B", ...], ...]} — mỗi nhóm >=2 tên THỰC SỰ trùng, copy Y NGUYÊN. Cụm không có trùng thì bỏ. Không giải thích.`;
+
+  const payload: any = {
+    model: modelOverride || settings.secondaryModel || settings.model,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: `Các cụm nghi ngờ:\n${JSON.stringify(clusters.map((c, i) => ({ cum: i, items: c })))}` }
+    ],
+    temperature: 0,
+    max_tokens: 4000,
+    stream: false,
+    response_format: { type: 'json_object' }
+  };
+
+  const response = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${settings.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }, 90000);
+  if (!response.ok) throw new Error(`Gộp trùng lỗi HTTP ${response.status}`);
+  const data = await response.json();
+  const parsed = JSON.parse(cleanJsonString(data.choices?.[0]?.message?.content || '{}'));
+  const groups = Array.isArray(parsed) ? parsed : (parsed.groups || []);
+  return (groups as any[])
+    .filter(g => Array.isArray(g) && g.length >= 2)
+    .map(g => g.map((x: any) => String(x)));
+};
+
+export const confirmDuplicateClusters = async (
+  clusters: { comment: string; keys: string[] }[][],
+  settings: OpenAISettings
+): Promise<string[][]> => {
+  if (clusters.length === 0) return [];
+  const model = settings.secondaryModel || settings.model;
+  const rpm = settings.secondaryRpm || 15;
+  const BATCH = 12; // ~12 cụm/lượt → nhiều lượt nhỏ, Flash phán đoán chính xác hơn 1 cục lớn
+  const batches: { comment: string; keys: string[] }[][][] = [];
+  for (let i = 0; i < clusters.length; i += BATCH) batches.push(clusters.slice(i, i + BATCH));
+
+  const settled = await runRateLimited(
+    batches.map(b => () => confirmDuplicateClustersBatch(b, settings, model)),
+    { key: `dedupe:${model}`, rpm }
+  );
+  const out: string[][] = [];
+  settled.forEach(r => { if (r.status === 'fulfilled' && Array.isArray(r.value)) out.push(...r.value); });
+  return out;
+};

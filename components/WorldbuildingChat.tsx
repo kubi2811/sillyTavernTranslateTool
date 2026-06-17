@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Lorebook, OpenAISettings, ChatMessage, WorldbuildingAction, WorldbuildingMode } from '../types';
-import { worldbuildingChat } from '../services/openai';
+import { worldbuildingChat, confirmDuplicateClusters } from '../services/openai';
 import { runRateLimited } from '../utils/rateLimiter';
 import { DEFAULT_STEPS } from '../constants/pipelineDefaults';
 import { Button } from './ui/Button';
@@ -13,6 +13,7 @@ interface WorldbuildingChatProps {
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onApplyActions: (actions: WorldbuildingAction[]) => void;
+  onMergeDuplicates?: (groups: string[][]) => number;
   wikiDataToFeed?: { name: string; content: string } | null;
   onClearWikiData?: () => void;
   pipelineToAnalyze?: any[] | null;
@@ -25,6 +26,7 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
   messages,
   setMessages,
   onApplyActions,
+  onMergeDuplicates,
   wikiDataToFeed,
   onClearWikiData,
   pipelineToAnalyze,
@@ -470,6 +472,70 @@ YÊU CẦU:
 
         const cleanStepName = currentStep.name.replace(/^Bước\s+\d+:\s*/i, '');
         setPipelineLogs(prev => [...prev, `✅ Hoàn thành bước [${i + 1}]: thu được ${stepAdded} mục về [${cleanStepName}]`]);
+      }
+
+      // ─── BƯỚC 6: GỘP TRÙNG NGỮ NGHĨA (Flash) ───
+      // Bắt cặp cùng thực thể khác tên (vd "Keiko's Mother" == "Mrs. Yukimura") mà dedup
+      // theo chữ không thấy: pre-filter cục bộ theo KEY chung → cụm nghi ngờ → Flash xác nhận → gộp.
+      if (pipelineRef.current && onMergeDuplicates && settings.semanticDedup !== false
+          && settings.enableSecondaryModel && settings.secondaryModel && settings.apiKey) {
+        try {
+          setPipelineLogs(prev => [...prev, `[Hệ thống] >>> BƯỚC 6: Gộp trùng ngữ nghĩa (Flash) <<<`]);
+          setChunkStats({ done: 0, total: 0, running: 0, model: `${settings.secondaryModel} (gộp trùng)` });
+          const ents = currentLorebookState.entries;
+          const catOf = (c?: string) => {
+            const n = String(c || '').toLowerCase();
+            if (/nhân vật|character|npc/.test(n)) return 'char';
+            if (/địa điểm|location|khu vực/.test(n)) return 'loc';
+            if (/hệ thống|system|cơ chế|kỹ năng|skill|rule|quy tắc/.test(n)) return 'sys';
+            if (/sự kiện|event|timeline|dòng thời gian|saga|arc/.test(n)) return 'time';
+            return 'other';
+          };
+          // Bỏ kính ngữ/quan hệ theo TỪ (không dùng \b vì hỏng với ký tự tiếng Việt như "bà").
+          const HONOR = new Set(['bà', 'ông', 'cô', 'chú', 'mrs', 'mr', 'ms', 'miss', 'the', 'vợ', 'chồng', 'mẹ', 'cha', 'bố', 'của', 's']);
+          const normKey = (k?: string) => String(k || '').toLowerCase()
+            .replace(/[^a-z0-9à-ỹ\s]/gi, ' ')
+            .split(/\s+/).filter(w => w && !HONOR.has(w)).join(' ').trim();
+          // Map "category|normKey" → tập index entry chia sẻ key đó.
+          const km = new Map<string, Set<number>>();
+          ents.forEach((e, idx) => {
+            const cat = catOf(e.comment);
+            const toks = [...(e.key || []), e.comment].map(normKey).filter(k => k && k.length >= 3);
+            for (const nk of new Set(toks)) {
+              const bk = cat + '|' + nk;
+              if (!km.has(bk)) km.set(bk, new Set());
+              km.get(bk)!.add(idx);
+            }
+          });
+          // Union-find: gom entry chia sẻ key (bỏ key quá phổ biến → cụm > 6 = rác).
+          const parent = ents.map((_, i) => i);
+          const find = (x: number): number => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+          for (const [, set] of km) {
+            const arr = [...set];
+            if (arr.length < 2 || arr.length > 6) continue;
+            for (let j = 1; j < arr.length; j++) parent[find(arr[j])] = find(arr[0]);
+          }
+          const clusterMap = new Map<number, number[]>();
+          ents.forEach((_, i) => { const r = find(i); if (!clusterMap.has(r)) clusterMap.set(r, []); clusterMap.get(r)!.push(i); });
+          const candidates = [...clusterMap.values()]
+            .filter(c => c.length >= 2 && c.length <= 6)
+            .map(c => c.map(i => ({ comment: ents[i].comment || '', keys: (ents[i].key || []).slice(0, 6) })));
+
+          if (candidates.length === 0) {
+            setPipelineLogs(prev => [...prev, `[Bước 6] Không có cụm nghi ngờ. Bỏ qua.`]);
+          } else {
+            setPipelineLogs(prev => [...prev, `[Bước 6] ${candidates.length} cụm nghi ngờ → hỏi Flash xác nhận (vài lượt)...`]);
+            const groups = await confirmDuplicateClusters(candidates, settings);
+            if (groups.length > 0 && pipelineRef.current) {
+              const removed = onMergeDuplicates(groups);
+              setPipelineLogs(prev => [...prev, `[Bước 6] ✅ Gộp ${groups.length} nhóm trùng ngữ nghĩa → xóa ${removed} mục dư.`]);
+            } else {
+              setPipelineLogs(prev => [...prev, `[Bước 6] Flash xác nhận không có trùng thật. Giữ nguyên.`]);
+            }
+          }
+        } catch (e: any) {
+          setPipelineLogs(prev => [...prev, `[Bước 6] Bỏ qua (lỗi gộp trùng: ${e?.message || e}).`]);
+        }
       }
 
       if (pipelineRef.current) {

@@ -72,6 +72,7 @@ export interface OpenAISettings {
   secondaryRpm?: number;          // Giới hạn RPM của model phụ (vd: 10)
   mixMode?: boolean;              // Chế độ Mix: pipeline chia việc cho CẢ Pro + Flash chạy đồng thời (tăng tốc ~3x). Mặc định bật.
   superMix?: boolean;             // Super Mix: gộp 5 nhóm vào 1 lượt/mảnh (đọc tài liệu 1× thay vì 5×, ~5x nhanh hơn). Mặc định TẮT (đánh đổi độ phân loại).
+  semanticDedup?: boolean;        // Bước 6: gộp trùng NGỮ NGHĨA bằng Flash (vd "Keiko's Mother"=="Mrs. Yukimura"). Mặc định bật.
   steps?: WorldbuildingStep[]; // Custom pipeline steps for AI instruction
   requireStepConfirmation?: boolean; // Xác nhận từng bước của AI trước khi đi tiếp
   aiPipelineMemory?: string; // Tóm tắt thâm sâu quy trình đã nạp của Tawa
