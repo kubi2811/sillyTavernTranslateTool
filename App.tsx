@@ -158,21 +158,25 @@ const App: React.FC = () => {
     }
   }, [settings]);
 
-  // Tự lưu lorebook mỗi khi thay đổi (chống mất công khi reload/đóng tab giữa chừng).
+  // Tự lưu lorebook — DEBOUNCE 1.2s. Pipeline commit từng chunk ⇒ lorebook đổi liên tục;
+  // nếu lưu ngay mỗi lần sẽ stringify + ghi file hàng chục lần (giật với lorebook 1000+ mục).
+  // Debounce gộp lại → chỉ lưu khi ngớt thay đổi, mượt hơn nhiều, vẫn không mất dữ liệu.
   useEffect(() => {
     if (!hydratedRef.current) return;
-    try {
-      saveLocal('sillyLore_lorebook', lorebook);
-      // Cảnh báo sớm khi localStorage > 80% (~5MB) để người dùng kịp xử lý.
-      const { pct } = getLocalStorageUsage();
-      if (pct >= 80) {
-        setStorageWarning(`Bộ nhớ trình duyệt đã dùng ~${pct}% (giới hạn ~5MB). Lorebook lớn có thể không lưu được — nên chạy bản local để lưu ra file đĩa.`);
-      } else if (pct < 70 && storageWarning) {
-        setStorageWarning(null); // đã giải phóng → ẩn cảnh báo
+    const id = setTimeout(() => {
+      try {
+        saveLocal('sillyLore_lorebook', lorebook);
+        const { pct } = getLocalStorageUsage();
+        if (pct >= 80) {
+          setStorageWarning(`Bộ nhớ trình duyệt đã dùng ~${pct}% (giới hạn ~5MB). Lorebook lớn có thể không lưu được — nên chạy bản local để lưu ra file đĩa.`);
+        } else if (pct < 70 && storageWarning) {
+          setStorageWarning(null);
+        }
+      } catch (e) {
+        setStorageWarning('Bộ nhớ trình duyệt đã đầy — không lưu được lorebook. Hãy chạy bản local (lưu ra file) hoặc xoá bớt entry.');
       }
-    } catch (e) {
-      setStorageWarning('Bộ nhớ trình duyệt đã đầy — không lưu được lorebook. Hãy chạy bản local (lưu ra file) hoặc xoá bớt entry.');
-    }
+    }, 1200);
+    return () => clearTimeout(id);
   }, [lorebook]);
 
   // --- Handlers ---
@@ -333,23 +337,25 @@ const App: React.FC = () => {
   const handleWorldbuildingActions = (actions: WorldbuildingAction[]) => {
     setLorebook(currentLorebook => {
       let nextEntries = [...currentLorebook.entries];
-      
+      // Tối ưu: dựng Set tên + maxUid 1 LẦN (tránh O(n²) khi lorebook 1000+ mục).
+      const seenComments = new Set(nextEntries.map(e => e.comment?.trim().toLowerCase()).filter(Boolean));
+      let runningMaxUid = nextEntries.reduce((m, e) => Math.max(m, e.uid || 0), 0);
+
       actions.forEach(action => {
         if (action.type === 'create' && action.data) {
-          // Check existing duplicates (trimmed and case-insensitive)
+          // Check existing duplicates (trimmed and case-insensitive) — O(1) qua Set
           const newComment = action.data.comment?.trim().toLowerCase();
           if (newComment) {
-            const exists = nextEntries.some(e => e.comment?.trim().toLowerCase() === newComment);
-            if (exists) {
+            if (seenComments.has(newComment)) {
               console.warn(`[Data Preservation] Entry "${action.data.comment}" already exists. Skipping duplicate creation.`);
               return;
             }
+            seenComments.add(newComment);
           }
 
-          // Calculate new UID
-          const maxUid = nextEntries.length > 0 ? Math.max(...nextEntries.map(e => e.uid)) : 0;
-          const newUid = maxUid + 1;
-          
+          // UID mới — tăng dần, không quét lại mảng
+          const newUid = ++runningMaxUid;
+
           // Clean keywords
           let cleanKeys: string[] = [];
           if (action.data && Array.isArray(action.data.key)) {
@@ -612,16 +618,18 @@ const App: React.FC = () => {
           onClearAll={handleClearAllEntries}
         />
         
-        {/* Right Content Area (Swappable) */}
-        {activeView === 'editor' ? (
-          <EntryEditor 
+        {/* Right Content Area — CẢ 2 view LUÔN MOUNT, chỉ ẩn/hiện bằng CSS.
+            → Đổi tab / bấm vào entry KHÔNG unmount WorldbuildingChat nên pipeline
+            đang chạy KHÔNG bị mất. (Entry tạo ra cũng tự lưu localStorage/file.) */}
+        <div className="flex-1 flex overflow-hidden" style={{ display: activeView === 'editor' ? 'flex' : 'none' }}>
+          <EntryEditor
             entry={selectedEntry}
             onChange={handleUpdateEntry}
             onOpenAI={() => setIsAIGeneratorOpen(true)}
             settings={settings}
           />
-        ) : (
-          <div className="flex-1 flex bg-slate-950/50 relative overflow-hidden">
+        </div>
+        <div className="flex-1 flex bg-slate-950/50 relative overflow-hidden" style={{ display: activeView === 'worldbuilding' ? 'flex' : 'none' }}>
              <div className="absolute inset-0 bg-[url('https://files.catbox.moe/o82o4z.png')] bg-cover bg-center opacity-40 pointer-events-none"></div>
              <div className="flex flex-row h-full w-full justify-center relative z-10 overflow-hidden">
                 <WikiCollector
@@ -632,7 +640,7 @@ const App: React.FC = () => {
                    settings={settings}
                 />
                 <div className="flex-1 max-w-3xl h-full flex justify-center">
-                   <WorldbuildingChat 
+                   <WorldbuildingChat
                       lorebook={lorebook}
                       settings={settings}
                       messages={chatMessages}
@@ -645,8 +653,7 @@ const App: React.FC = () => {
                    />
                 </div>
              </div>
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Modals */}

@@ -114,6 +114,15 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
     };
   }, []);
 
+  // Cảnh báo trước khi đóng/reload tab lúc pipeline đang chạy (chống mất giữa chừng).
+  // Entry đã tạo vẫn được tự lưu, nhưng nhắc người dùng để tránh lỡ tay.
+  useEffect(() => {
+    if (!pipelineRunning) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [pipelineRunning]);
+
   // Bộ đếm thời gian: tick mỗi giây khi pipeline đang chạy.
   useEffect(() => {
     if (!pipelineRunning || !pipelineStartTime) return;
@@ -256,11 +265,12 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
         const chunkSize = 15000;
         const fullText = attachedDoc.content || '';
         const chunks: string[] = [];
-        // BƯỚC SINGLETON (Thế Giới Quan + META): KHÔNG chia mảnh — gửi TOÀN tài liệu
-        // trong 1 lượt để model tạo đúng 2 mục tổng quan (không mỗi mảnh đẻ 1 bản → hết trùng).
-        // Gemini Pro context 2M nên 1 lượt 200K+ ký tự vẫn dư sức.
+        // BƯỚC SINGLETON (Thế Giới Quan + META): 1 lượt, KHÔNG chia mảnh → tạo đúng 2 mục
+        // tổng quan, không trùng. Chỉ lấy ~50K ký tự ĐẦU (trang Wiki CHÍNH nằm đầu tài liệu)
+        // — đủ cho tổng quan. KHÔNG gửi cả 600K vì input quá lớn khiến model đọc lâu → bị
+        // idle-watchdog hủy → bước 1 ra RỖNG (lỗi đã gặp ở wiki lớn như YuYu 1000+ trang).
         if (currentStep.singleton) {
-          chunks.push(fullText.slice(0, 600000));
+          chunks.push(fullText.slice(0, 50000));
         } else {
           for (let s = 0; s < fullText.length; s += chunkSize) {
             chunks.push(fullText.slice(s, s + chunkSize));
