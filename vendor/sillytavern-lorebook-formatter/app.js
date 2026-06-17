@@ -629,6 +629,7 @@ async function loadModelsList() {
   // Proxy → đường OpenAI-compatible /v1/models (có CORS). Native chỉ khi endpoint Google thật.
   const useNative = provider === 'gemini' && (!rawBase || /generativelanguage\.google/i.test(rawBase));
   if (btnLoadModels) { btnLoadModels.disabled = true; btnLoadModels.textContent = '⏳ Đang tải...'; }
+  if (validationStatusIndicator) { validationStatusIndicator.textContent = '⏳'; validationStatusIndicator.title = 'Đang tải model...'; }
   log('Đang tải danh sách model...');
   try {
     let ids = [];
@@ -651,9 +652,11 @@ async function loadModelsList() {
     populateModelSelect(apiModelSelect, ids, localStorage.getItem('st_opt_model') || apiModelSelect.value);
     populateModelSelect(secondaryModelInput, ids, localStorage.getItem('st_opt_secondary_model') || secondaryModelInput.value);
     updateModelInputVisibility();
-    log(`✓ Đã tải ${ids.length} model. Chọn trong dropdown.`, 'success');
+    if (validationStatusIndicator) { validationStatusIndicator.textContent = '✅'; validationStatusIndicator.title = `Đã tải ${ids.length} model`; }
+    log(`✓ Đã tải ${ids.length} model (chính + phụ). Chọn trong dropdown.`, 'success');
   } catch (err) {
     const msg = String(err?.message || err);
+    if (validationStatusIndicator) { validationStatusIndicator.textContent = '❌'; validationStatusIndicator.title = msg; }
     if (msg.includes('Failed to fetch')) log('Load model lỗi: Failed to fetch — sai Base URL hoặc gọi thẳng Google bị CORS. Dùng proxy có CORS.', 'danger');
     else log(`Load model lỗi: ${msg}`, 'danger');
     alert(`Không tải được danh sách model: ${msg}`);
@@ -663,8 +666,8 @@ async function loadModelsList() {
 }
 btnLoadModels?.addEventListener('click', loadModelsList);
 
-// Validate API Key and URL connection
-btnValidateKey.addEventListener('click', async () => {
+// Validate API Key and URL connection (nút đã bỏ — listener null-safe để không vỡ JS)
+btnValidateKey?.addEventListener('click', async () => {
   const apiKey = apiKeyInput.value.trim();
   if (!apiKey) {
     alert('Please enter an API Key first!');
@@ -850,12 +853,13 @@ function processRawJson(filename, json, size) {
         rawEntries = json.entries;
       } else {
         // Entries is keyed object e.g. {"0": {...}, "1": {...}}
+        // QUAN TRỌNG: trả về THAM CHIẾU THẬT vào json.entries[key] (KHÔNG spread tạo bản sao),
+        // để Auto-Fix sửa in-place phản ánh đúng khi export rawJson. Trước đây spread tạo bản
+        // sao → export ra data CŨ dù FE đã đổi.
         rawEntries = Object.keys(json.entries).map(key => {
-          return {
-            uid: json.entries[key].uid !== undefined ? json.entries[key].uid : key,
-            originalKey: key, // Keep original dictionary key for exporting
-            ...json.entries[key]
-          };
+          const obj = json.entries[key];
+          if (obj.uid === undefined) obj.uid = key; // đảm bảo có uid để map kết quả AI
+          return obj;
         });
       }
     }

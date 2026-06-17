@@ -56,17 +56,14 @@
         </div>
 
         <div class="form-group" style="display: flex; gap: 8px; align-items: center; margin-top: 12px; margin-bottom: 20px;">
-          <button type="button" id="btn-validate-key" class="btn btn-secondary" style="flex-grow: 1; padding: 8px 12px; font-size: 0.8rem; height: 36px;">
-            Validate & Init Key
+          <button type="button" id="btn-load-models" class="btn btn-primary" style="flex-grow: 1; padding: 10px 12px; font-size: 0.85rem; height: 40px;">
+            ⟳ Load model (chính + phụ)
           </button>
-          <span id="validation-status-indicator" style="font-size: 1.1rem; min-width: 20px; display: inline-block; text-align: center;" title="Validation Status"></span>
+          <span id="validation-status-indicator" style="font-size: 1.1rem; min-width: 20px; display: inline-block; text-align: center;" title="Trạng thái tải model"></span>
         </div>
 
         <div class="form-group">
-          <label for="api-model" style="display:flex; align-items:center; justify-content:space-between;">
-            <span>Model</span>
-            <button type="button" id="btn-load-models" class="btn btn-secondary" style="padding:3px 10px; font-size:0.7rem; height:auto;">⟳ Load model</button>
-          </label>
+          <label for="api-model">Model chính</label>
           <select id="api-model">
             <!-- Gemini 3 -->
             <option value="gemini-3-pro-preview">gemini-3-pro-preview (Pro)</option>
