@@ -13,7 +13,8 @@ import { Button } from './components/ui/Button';
 import { Modal } from './components/ui/Modal';
 import { Download, Upload, Settings, BookOpen, MessageSquare, Edit, Languages, HelpCircle, Zap } from 'lucide-react';
 import { getOptimizedEntrySettings } from './utils/optimize';
-import { optimizeEntireLorebook } from './services/openai';
+import { optimizeEntireLorebook, confirmDuplicateClusters } from './services/openai';
+import { buildDuplicateCandidates } from './utils/semanticDedup';
 import { DEFAULT_MASTER_INSTRUCTION } from './constants/masterInstruction';
 import { DEFAULT_STEPS, DEFAULT_PROMPTS, PIPELINE_VERSION } from './constants/pipelineDefaults';
 import { loadLocal, saveLocal, readDisk, getStorageDir, getLocalStorageUsage } from './utils/storage';
@@ -132,6 +133,7 @@ const App: React.FC = () => {
   const hydratedRef = useRef(false);                 // chặn ghi đè file trước khi hydrate xong
   const [storageDir, setStorageDir] = useState<string | null>(null); // đường dẫn folder lưu (dev)
   const [storageWarning, setStorageWarning] = useState<string | null>(null); // banner cảnh báo gần đầy
+  const [isDeduping, setIsDeduping] = useState(false); // đang chạy "Dọn trùng" độc lập
 
   // --- Effects ---
   // Hydrate từ FILE ĐĨA (nếu chạy `npm run dev`): file là nguồn thật, ưu tiên hơn localStorage.
@@ -282,6 +284,28 @@ const App: React.FC = () => {
     }));
     if (selectedUid !== null && toRemove.has(selectedUid)) setSelectedUid(null);
     return toRemove.size;
+  };
+
+  // Chạy RIÊNG Bước 6 (gộp trùng ngữ nghĩa) trên lorebook hiện tại — vd import JSON vào rồi bấm.
+  const handleRunSemanticDedup = async () => {
+    if (isDeduping) return;
+    if (lorebook.entries.length === 0) { alert('Chưa có mục nào. Hãy nhập (Import) hoặc tạo lorebook trước.'); return; }
+    if (!settings.apiKey) { alert('Cần API Key trong Cài đặt để chạy gộp trùng.'); return; }
+    const model = settings.secondaryModel || settings.model;
+    if (!model) { alert('Chưa cấu hình model.'); return; }
+    setIsDeduping(true);
+    try {
+      const candidates = buildDuplicateCandidates(lorebook.entries);
+      if (candidates.length === 0) { alert('Không tìm thấy cụm nghi ngờ trùng nào.'); return; }
+      const groups = await confirmDuplicateClusters(candidates, settings);
+      if (groups.length === 0) { alert(`Đã rà ${candidates.length} cụm nghi ngờ — không có mục nào TRÙNG ngữ nghĩa.`); return; }
+      const removed = handleMergeDuplicates(groups);
+      alert(`✅ Gộp ${groups.length} nhóm trùng ngữ nghĩa → đã xóa ${removed} mục dư. (Còn lại ${lorebook.entries.length - removed} mục)`);
+    } catch (e: any) {
+      alert(`Gộp trùng lỗi: ${e?.message || e}`);
+    } finally {
+      setIsDeduping(false);
+    }
   };
 
   // Xóa TẤT CẢ mục khỏi giao diện (chỉ dọn lorebook đang hiển thị + bộ nhớ tự lưu;
@@ -601,6 +625,18 @@ const App: React.FC = () => {
              <Upload size={18} />
              <input type="file" accept=".json, .txt" className="hidden" onChange={handleImport} />
            </label>
+
+           <Button
+             variant="secondary"
+             size="sm"
+             onClick={handleRunSemanticDedup}
+             disabled={isDeduping}
+             className="px-3 bg-teal-950/40 border-teal-500/30 text-teal-200 hover:bg-teal-900/60 hover:border-teal-400/60 disabled:opacity-60"
+             title="Dọn trùng ngữ nghĩa: rà & gộp các mục cùng 1 thực thể nhưng khác tên (dùng model phụ Flash). Có thể Import JSON vào rồi bấm."
+           >
+             <span className="hidden md:inline">{isDeduping ? '⏳ Đang dọn...' : '🧹 Dọn trùng'}</span>
+             <span className="md:hidden">🧹</span>
+           </Button>
 
            <Button variant="primary" size="sm" onClick={handleExport} icon={<Download size={14} className="hidden md:inline"/>} className="px-3">
              <span className="hidden md:inline">Xuất JSON</span>

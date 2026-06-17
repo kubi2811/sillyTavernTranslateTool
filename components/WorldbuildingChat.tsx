@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Lorebook, OpenAISettings, ChatMessage, WorldbuildingAction, WorldbuildingMode } from '../types';
 import { worldbuildingChat, confirmDuplicateClusters } from '../services/openai';
+import { buildDuplicateCandidates } from '../utils/semanticDedup';
 import { runRateLimited } from '../utils/rateLimiter';
 import { DEFAULT_STEPS } from '../constants/pipelineDefaults';
 import { Button } from './ui/Button';
@@ -482,44 +483,7 @@ YÊU CẦU:
         try {
           setPipelineLogs(prev => [...prev, `[Hệ thống] >>> BƯỚC 6: Gộp trùng ngữ nghĩa (Flash) <<<`]);
           setChunkStats({ done: 0, total: 0, running: 0, model: `${settings.secondaryModel} (gộp trùng)` });
-          const ents = currentLorebookState.entries;
-          const catOf = (c?: string) => {
-            const n = String(c || '').toLowerCase();
-            if (/nhân vật|character|npc/.test(n)) return 'char';
-            if (/địa điểm|location|khu vực/.test(n)) return 'loc';
-            if (/hệ thống|system|cơ chế|kỹ năng|skill|rule|quy tắc/.test(n)) return 'sys';
-            if (/sự kiện|event|timeline|dòng thời gian|saga|arc/.test(n)) return 'time';
-            return 'other';
-          };
-          // Bỏ kính ngữ/quan hệ theo TỪ (không dùng \b vì hỏng với ký tự tiếng Việt như "bà").
-          const HONOR = new Set(['bà', 'ông', 'cô', 'chú', 'mrs', 'mr', 'ms', 'miss', 'the', 'vợ', 'chồng', 'mẹ', 'cha', 'bố', 'của', 's']);
-          const normKey = (k?: string) => String(k || '').toLowerCase()
-            .replace(/[^a-z0-9à-ỹ\s]/gi, ' ')
-            .split(/\s+/).filter(w => w && !HONOR.has(w)).join(' ').trim();
-          // Map "category|normKey" → tập index entry chia sẻ key đó.
-          const km = new Map<string, Set<number>>();
-          ents.forEach((e, idx) => {
-            const cat = catOf(e.comment);
-            const toks = [...(e.key || []), e.comment].map(normKey).filter(k => k && k.length >= 3);
-            for (const nk of new Set(toks)) {
-              const bk = cat + '|' + nk;
-              if (!km.has(bk)) km.set(bk, new Set());
-              km.get(bk)!.add(idx);
-            }
-          });
-          // Union-find: gom entry chia sẻ key (bỏ key quá phổ biến → cụm > 6 = rác).
-          const parent = ents.map((_, i) => i);
-          const find = (x: number): number => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
-          for (const [, set] of km) {
-            const arr = [...set];
-            if (arr.length < 2 || arr.length > 6) continue;
-            for (let j = 1; j < arr.length; j++) parent[find(arr[j])] = find(arr[0]);
-          }
-          const clusterMap = new Map<number, number[]>();
-          ents.forEach((_, i) => { const r = find(i); if (!clusterMap.has(r)) clusterMap.set(r, []); clusterMap.get(r)!.push(i); });
-          const candidates = [...clusterMap.values()]
-            .filter(c => c.length >= 2 && c.length <= 6)
-            .map(c => c.map(i => ({ comment: ents[i].comment || '', keys: (ents[i].key || []).slice(0, 6) })));
+          const candidates = buildDuplicateCandidates(currentLorebookState.entries);
 
           if (candidates.length === 0) {
             setPipelineLogs(prev => [...prev, `[Bước 6] Không có cụm nghi ngờ. Bỏ qua.`]);
