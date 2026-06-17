@@ -33,6 +33,7 @@ const btnValidateKey = document.getElementById('btn-validate-key');
 const validationStatusIndicator = document.getElementById('validation-status-indicator');
 const customModelInput = document.getElementById('custom-model');
 const customModelGroup = document.getElementById('custom-model-group');
+const btnLoadModels = document.getElementById('btn-load-models');
 // Mix đa luồng
 const mixModeCheckbox = document.getElementById('mix-mode');
 const primaryRpmInput = document.getElementById('primary-rpm');
@@ -601,6 +602,66 @@ apiUrlInput.addEventListener('change', () => {
 customModelInput.addEventListener('change', () => {
   localStorage.setItem('st_opt_custom_model', customModelInput.value.trim());
 });
+
+// ── LOAD danh sách model từ API rồi đổ vào dropdown (chính + phụ) ──
+function populateModelSelect(sel, ids, keep) {
+  if (!sel) return;
+  const prev = keep || sel.value;
+  sel.innerHTML = '';
+  ids.forEach(id => {
+    const o = document.createElement('option');
+    o.value = id; o.textContent = id;
+    sel.appendChild(o);
+  });
+  if (sel === apiModelSelect) { // giữ lựa chọn "Custom" cho model chính
+    const c = document.createElement('option');
+    c.value = 'custom'; c.textContent = 'Custom Model...';
+    sel.appendChild(c);
+  }
+  if (prev && (ids.includes(prev) || prev === 'custom')) sel.value = prev;
+}
+
+async function loadModelsList() {
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) { alert('Nhập API Key trước khi Load model!'); return; }
+  const provider = apiProviderSelect.value;
+  const rawBase = (apiUrlInput.value || '').trim();
+  // Proxy → đường OpenAI-compatible /v1/models (có CORS). Native chỉ khi endpoint Google thật.
+  const useNative = provider === 'gemini' && (!rawBase || /generativelanguage\.google/i.test(rawBase));
+  if (btnLoadModels) { btnLoadModels.disabled = true; btnLoadModels.textContent = '⏳ Đang tải...'; }
+  log('Đang tải danh sách model...');
+  try {
+    let ids = [];
+    if (useNative) {
+      const base = (rawBase || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+      const res = await fetch(`${base}/v1beta/models?key=${apiKey}`);
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error?.message || `status ${res.status}`); }
+      const j = await res.json();
+      ids = (j.models || []).map(m => String(m.name || '').replace(/^models\//, '')).filter(Boolean);
+    } else {
+      let base = (rawBase || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const url = /\/v\d+($|\/)/.test(base) ? `${base}/models` : `${base}/v1/models`;
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error?.message || `status ${res.status}`); }
+      const j = await res.json();
+      ids = (j.data || j.models || []).map(m => m.id || m.name).filter(Boolean);
+    }
+    if (!ids.length) throw new Error('API không trả về model nào.');
+    ids = Array.from(new Set(ids)).sort();
+    populateModelSelect(apiModelSelect, ids, localStorage.getItem('st_opt_model') || apiModelSelect.value);
+    populateModelSelect(secondaryModelInput, ids, localStorage.getItem('st_opt_secondary_model') || secondaryModelInput.value);
+    updateModelInputVisibility();
+    log(`✓ Đã tải ${ids.length} model. Chọn trong dropdown.`, 'success');
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg.includes('Failed to fetch')) log('Load model lỗi: Failed to fetch — sai Base URL hoặc gọi thẳng Google bị CORS. Dùng proxy có CORS.', 'danger');
+    else log(`Load model lỗi: ${msg}`, 'danger');
+    alert(`Không tải được danh sách model: ${msg}`);
+  } finally {
+    if (btnLoadModels) { btnLoadModels.disabled = false; btnLoadModels.textContent = '⟳ Load model'; }
+  }
+}
+btnLoadModels?.addEventListener('click', loadModelsList);
 
 // Validate API Key and URL connection
 btnValidateKey.addEventListener('click', async () => {
