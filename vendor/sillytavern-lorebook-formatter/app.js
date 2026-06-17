@@ -1250,16 +1250,36 @@ btnRunAi.addEventListener('click', async () => {
     });
   };
 
+  // ── Theo dõi tiến độ chi tiết: thời gian + số luồng đang chạy + %/từng phần ──
+  const t0 = Date.now();
+  let running = 0;
+  const totalBatches = batches.length;
+  let batchesDone = 0;
+  const fmtT = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const progLabel = () => {
+    const el = fmtT(Math.floor((Date.now() - t0) / 1000));
+    return `⏱ ${el} • ${running} luồng • ${processed}/${total} mục (batch ${batchesDone}/${totalBatches})`;
+  };
+  const pct = () => Math.round((processed / total) * 100);
+  const ticker = setInterval(() => updateProgress(pct(), progLabel()), 1000); // cập nhật đồng hồ mỗi giây
+
   // 1 batch = 1 tác vụ; commit + render NGAY khi xong (hiện dần, theo dõi được).
   const makeTask = (batch, useModel, tag) => async () => {
-    const results = await classifyBatchWithAi(batch, provider, useModel, apiKey);
-    applyResults(results);
-    processed += batch.length;
-    updateProgress(Math.round((processed / total) * 100), `Đã xử lý ${processed}/${total} mục`);
-    renderEntries();
-    updateDistribution();
-    log(`✓ ${tag}: xong batch ${batch.length} mục (${processed}/${total}).`);
-    return results;
+    running++; // +1 luồng (badge cập nhật ngay)
+    updateProgress(pct(), progLabel());
+    try {
+      const results = await classifyBatchWithAi(batch, provider, useModel, apiKey);
+      applyResults(results);
+      processed += batch.length;
+      batchesDone++;
+      renderEntries();
+      updateDistribution();
+      log(`✓ ${tag}: xong batch ${batch.length} mục (${processed}/${total} • ${pct()}%).`);
+      return results;
+    } finally {
+      running--; // -1 luồng
+      updateProgress(pct(), progLabel());
+    }
   };
 
   const mixOn = mixModeCheckbox?.checked && provider === 'gemini';
@@ -1287,13 +1307,15 @@ btnRunAi.addEventListener('click', async () => {
       await runRateLimited(batches.map(b => makeTask(b, model, model)), { rpm: pRpm });
     }
 
-    log(`Phân loại AI hoàn tất cho ${processed}/${total} mục!`, 'success');
-    updateProgress(100, 'Analysis Completed');
+    log(`Phân loại AI hoàn tất cho ${processed}/${total} mục! (${fmtT(Math.floor((Date.now() - t0) / 1000))})`, 'success');
+    updateProgress(100, `Hoàn tất • ${total} mục • ${fmtT(Math.floor((Date.now() - t0) / 1000))}`);
     btnDownload.disabled = false;
   } catch (err) {
     log(`AI Scan Error: ${err.message}`, 'danger');
     alert(`AI analysis failed: ${err.message}`);
-    updateProgress(0, 'Failed');
+    updateProgress(pct(), `Lỗi — đã xử lý ${processed}/${total}`);
+  } finally {
+    clearInterval(ticker); // dừng đồng hồ tiến độ
   }
 });
 
@@ -1328,60 +1350,43 @@ Chỉ trả về chuỗi JSON hợp lệ, KHÔNG bao gồm markdown code block, 
 `;
 
   let responseText = '';
-  
-  if (provider === 'gemini') {
-    let baseUrl = apiUrlInput.value.trim() || 'https://generativelanguage.googleapis.com';
-    const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const payload = {
-      contents: [{
-        parts: [{ text: prompt }]
-      }],
-      generationConfig: {
-        responseMimeType: "application/json"
-      }
-    };
+  const rawBase = (apiUrlInput.value || '').trim();
+  // Gọi GEMINI NATIVE chỉ khi Base URL trống/đúng endpoint Google.
+  // Gọi thẳng Google từ trình duyệt hay bị CORS → "Failed to fetch"; nên nếu dùng
+  // PROXY (Base URL khác google) ta đi qua đường OpenAI-compatible /v1/chat/completions.
+  const isGeminiNative = provider === 'gemini' && (!rawBase || /generativelanguage\.google/i.test(rawBase));
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
+  // Timeout 90s chống treo.
+  const controller = new AbortController();
+  const timer = setTimeout(() => { try { controller.abort(); } catch {} }, 90000);
 
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error?.message || `Gemini API returned status ${res.status}`);
+  try {
+    if (isGeminiNative) {
+      const baseUrl = (rawBase || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+      const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json' } };
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: controller.signal });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error?.message || `Gemini API status ${res.status}`); }
+      const j = await res.json();
+      responseText = j.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } else {
+      // OpenAI-compatible (proxy gemini/openai). Tự thêm /v1 nếu thiếu.
+      let baseUrl = (rawBase || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const url = /\/v\d+($|\/)/.test(baseUrl) ? `${baseUrl}/chat/completions` : `${baseUrl}/v1/chat/completions`;
+      const payload = { model, messages: [{ role: 'user', content: prompt }], response_format: { type: 'json_object' }, temperature: 0 };
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify(payload), signal: controller.signal });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error?.message || `API status ${res.status}`); }
+      const j = await res.json();
+      responseText = j.choices?.[0]?.message?.content || '';
     }
-
-    const resJson = await res.json();
-    responseText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } else {
-    // OpenAI Provider
-    let baseUrl = apiUrlInput.value.trim() || 'https://api.openai.com/v1';
-    const url = `${baseUrl}/chat/completions`;
-    const payload = {
-      model: model,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: "json_object" }
-    };
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error?.message || `OpenAI API returned status ${res.status}`);
+  } catch (err) {
+    if (err?.name === 'AbortError') throw new Error('Quá thời gian (90s) — proxy/mạng chậm.');
+    if (String(err?.message).includes('Failed to fetch')) {
+      throw new Error('Failed to fetch — thường do gọi thẳng Google bị CORS, hoặc sai Base URL. Hãy dùng PROXY có CORS (vd cùng Base URL như app tạo entry) và để Base URL trỏ tới proxy đó.');
     }
-
-    const resJson = await res.json();
-    responseText = resJson.choices?.[0]?.message?.content || '';
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
 
   // Parse results
