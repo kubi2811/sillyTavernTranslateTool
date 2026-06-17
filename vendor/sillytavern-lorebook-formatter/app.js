@@ -33,6 +33,46 @@ const btnValidateKey = document.getElementById('btn-validate-key');
 const validationStatusIndicator = document.getElementById('validation-status-indicator');
 const customModelInput = document.getElementById('custom-model');
 const customModelGroup = document.getElementById('custom-model-group');
+// Mix đa luồng
+const mixModeCheckbox = document.getElementById('mix-mode');
+const primaryRpmInput = document.getElementById('primary-rpm');
+const secondaryRpmInput = document.getElementById('secondary-rpm');
+const secondaryModelInput = document.getElementById('secondary-model');
+const secondaryRpmGroup = document.getElementById('secondary-rpm-group');
+const secondaryModelGroup = document.getElementById('secondary-model-group');
+
+/* ───── BỘ ĐIỀU PHỐI RPM + ĐA LUỒNG (port từ app React) ───── */
+class RateLimiter {
+  constructor(rpm) { this.setRpm(rpm); this.queue = []; this.last = 0; this.timer = null; }
+  setRpm(rpm) { this.interval = Math.ceil((60000 / Math.max(1, Math.floor(rpm) || 1)) * 1.05); }
+  acquire() { return new Promise(res => { this.queue.push(res); this._pump(); }); }
+  _pump() {
+    if (this.timer || this.queue.length === 0) return;
+    const wait = Math.max(0, this.last + this.interval - Date.now());
+    this.timer = setTimeout(() => {
+      this.timer = null; this.last = Date.now();
+      const r = this.queue.shift(); if (r) r();
+      this._pump();
+    }, wait);
+  }
+}
+// Chạy danh sách tác vụ: gate START theo RPM + nhiều luồng chồng nhau. Giữ thứ tự kết quả.
+async function runRateLimited(tasks, { rpm, concurrency }) {
+  const limiter = new RateLimiter(rpm);
+  const conc = Math.max(1, Math.min(concurrency || Math.max(2, Math.ceil(rpm)), tasks.length || 1));
+  const results = new Array(tasks.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < tasks.length) {
+      const i = cursor++;
+      await limiter.acquire();
+      try { results[i] = { status: 'fulfilled', value: await tasks[i]() }; }
+      catch (e) { results[i] = { status: 'rejected', reason: e }; }
+    }
+  };
+  await Promise.all(Array.from({ length: conc }, () => worker()));
+  return results;
+}
 const btnImportDefaultRules = document.getElementById('btn-import-default-rules');
 const ruleFileInput = document.getElementById('rule-file-input');
 
@@ -494,11 +534,36 @@ document.addEventListener('DOMContentLoaded', () => {
   const savedCustomModel = localStorage.getItem('st_opt_custom_model');
   if (savedCustomModel) customModelInput.value = savedCustomModel;
 
+  // Khôi phục cài đặt Mix
+  const savedMix = localStorage.getItem('st_opt_mix');
+  if (savedMix !== null && mixModeCheckbox) mixModeCheckbox.checked = savedMix === '1';
+  const savedPRpm = localStorage.getItem('st_opt_primary_rpm');
+  if (savedPRpm && primaryRpmInput) primaryRpmInput.value = savedPRpm;
+  const savedSRpm = localStorage.getItem('st_opt_secondary_rpm');
+  if (savedSRpm && secondaryRpmInput) secondaryRpmInput.value = savedSRpm;
+  const savedSModel = localStorage.getItem('st_opt_secondary_model');
+  if (savedSModel && secondaryModelInput) secondaryModelInput.value = savedSModel;
+
   loadStoredRules();
   updateApiUrlPlaceholder();
   updateModelInputVisibility();
+  updateMixVisibility();
   renderRuleCards();
 });
+
+// Ẩn/hiện field model phụ theo trạng thái Mix + lưu localStorage.
+function updateMixVisibility() {
+  const on = !!mixModeCheckbox?.checked;
+  if (secondaryRpmGroup) secondaryRpmGroup.style.display = on ? '' : 'none';
+  if (secondaryModelGroup) secondaryModelGroup.style.display = on ? '' : 'none';
+}
+mixModeCheckbox?.addEventListener('change', () => {
+  localStorage.setItem('st_opt_mix', mixModeCheckbox.checked ? '1' : '0');
+  updateMixVisibility();
+});
+primaryRpmInput?.addEventListener('change', () => localStorage.setItem('st_opt_primary_rpm', primaryRpmInput.value));
+secondaryRpmInput?.addEventListener('change', () => localStorage.setItem('st_opt_secondary_rpm', secondaryRpmInput.value));
+secondaryModelInput?.addEventListener('change', () => localStorage.setItem('st_opt_secondary_model', secondaryModelInput.value.trim()));
 
 btnImportDefaultRules?.addEventListener('click', () => {
   openRuleFilePicker();
@@ -1157,37 +1222,72 @@ btnRunAi.addEventListener('click', async () => {
   log(`Initializing AI Scan using ${provider} (${model})...`);
   updateProgress(0, 'Starting AI...');
 
-  // Group entries in batches of 10 to save api calls and speed up
+  // Chia entry thành các batch 10 mục.
   const batchSize = 10;
   const entries = activeFile.entries;
   const total = entries.length;
+  if (total === 0) { alert('Chưa có entry nào để phân loại.'); return; }
+
+  const batches = [];
+  for (let i = 0; i < total; i += batchSize) batches.push(entries.slice(i, i + batchSize));
+
+  // Gán kết quả về entry THEO UID → an toàn tuyệt đối khi chạy song song
+  // (mỗi entry nằm đúng 1 batch; không tạo entry mới nên KHÔNG thể trùng data).
   let processed = 0;
+  const assignedUids = new Set(); // chống gán đè nếu model lỡ trả uid của batch khác
+  const applyResults = (results) => {
+    (Array.isArray(results) ? results : []).forEach(res => {
+      if (!res || res.uid === undefined) return;
+      const key = String(res.uid);
+      if (assignedUids.has(key)) return; // đã gán rồi → bỏ (chống trùng phòng hờ)
+      const entry = entries.find(e => e.uid.toString() === key);
+      if (entry) {
+        assignedUids.add(key);
+        entry.assignedGroup = res.group;
+        entry.aiExplanation = res.explanation;
+        evaluateEntryStatus(entry);
+      }
+    });
+  };
+
+  // 1 batch = 1 tác vụ; commit + render NGAY khi xong (hiện dần, theo dõi được).
+  const makeTask = (batch, useModel, tag) => async () => {
+    const results = await classifyBatchWithAi(batch, provider, useModel, apiKey);
+    applyResults(results);
+    processed += batch.length;
+    updateProgress(Math.round((processed / total) * 100), `Đã xử lý ${processed}/${total} mục`);
+    renderEntries();
+    updateDistribution();
+    log(`✓ ${tag}: xong batch ${batch.length} mục (${processed}/${total}).`);
+    return results;
+  };
+
+  const mixOn = mixModeCheckbox?.checked && provider === 'gemini';
+  const pRpm = Math.max(1, parseInt(primaryRpmInput?.value) || 5);
 
   try {
-    for (let i = 0; i < total; i += batchSize) {
-      const batch = entries.slice(i, i + batchSize);
-      updateProgress(Math.round((i / total) * 100), `Processing entries ${i + 1} to ${Math.min(i + batchSize, total)}...`);
-      
-      log(`Calling AI API for batch ${Math.floor(i / batchSize) + 1}...`);
-      const results = await classifyBatchWithAi(batch, provider, model, apiKey);
-      
-      // Map results back to entries
-      results.forEach(res => {
-        const entry = entries.find(e => e.uid.toString() === res.uid.toString());
-        if (entry) {
-          entry.assignedGroup = res.group;
-          entry.aiExplanation = res.explanation;
-          evaluateEntryStatus(entry);
-        }
+    if (mixOn) {
+      // ── MIX: chia batch cho 2 model chạy ĐỒNG THỜI, theo TỈ LỆ RPM ──
+      const secModel = (secondaryModelInput?.value || '').trim() || 'gemini-3-flash';
+      const sRpm = Math.max(1, parseInt(secondaryRpmInput?.value) || 15);
+      const primIdx = [], secIdx = [];
+      let pl = 0, sl = 0;
+      batches.forEach((_, bi) => {
+        if ((pl + 1) / pRpm <= (sl + 1) / sRpm) { primIdx.push(bi); pl++; }
+        else { secIdx.push(bi); sl++; }
       });
-
-      processed += batch.length;
-      updateProgress(Math.round((processed / total) * 100), `Processed ${processed}/${total} entries`);
-      renderEntries();
-      updateDistribution();
+      log(`⚡ Mix: model chính "${model}" ôm ${primIdx.length} batch (RPM ${pRpm}), model phụ "${secModel}" ôm ${secIdx.length} batch (RPM ${sRpm}). Tổng ~${pRpm + sRpm} luồng/phút.`);
+      await Promise.all([
+        runRateLimited(primIdx.map(bi => makeTask(batches[bi], model, 'Pro')), { rpm: pRpm }),
+        runRateLimited(secIdx.map(bi => makeTask(batches[bi], secModel, 'Flash')), { rpm: sRpm }),
+      ]);
+    } else {
+      // ── 1 model, đa luồng theo RPM ──
+      log(`Đa luồng 1 model "${model}" (RPM ${pRpm}) trên ${batches.length} batch...`);
+      await runRateLimited(batches.map(b => makeTask(b, model, model)), { rpm: pRpm });
     }
 
-    log(`AI Analysis successfully completed for all ${total} entries!`, 'success');
+    log(`Phân loại AI hoàn tất cho ${processed}/${total} mục!`, 'success');
     updateProgress(100, 'Analysis Completed');
     btnDownload.disabled = false;
   } catch (err) {
