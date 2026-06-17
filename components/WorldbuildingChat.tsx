@@ -175,40 +175,62 @@ export const WorldbuildingChat: React.FC<WorldbuildingChatProps> = ({
     let currentHistory = [...messages];
     setInput('');
 
-    // ─── CHỐNG TRÙNG + COMMIT TĂNG DẦN (dùng chung cho cả pipeline) ───
-    const normName = (c?: string) => String(c || '')
-      .toLowerCase().replace(/\s+/g, ' ').trim();
-    // Phát hiện mục TỔNG QUAN theo NỘI DUNG tiêu đề (bắt mọi cách đặt tên, kể cả khi
-    // tên bắt đầu bằng tên wiki như "Solo Leveling - Thế Giới Quan"). Toàn lorebook
-    // chỉ giữ DUY NHẤT 1 Thế Giới Quan + 1 META.
+    // ─── CHỐNG TRÙNG (THEO THỰC THỂ) + TỰ SINH TỪ KHÓA + COMMIT TĂNG DẦN ───
+    // Tag danh mục mà AI hay gắn trước tên (gây "Nhân vật: X" vs "Character: X").
+    const TAG_PREFIX = /^\s*(nhân vật phụ|nhân vật|nhan vat|character|npc|địa điểm|dia diem|location|khu vực|hệ thống|he thong|system|cơ chế|mechanic|quy tắc|rule|sự kiện|event|thế giới quan|tổng cương|worldview|meta[_ ]?setup|meta|timeline|dòng thời gian)\s*[:\-–—]\s*/i;
+    // "Canonical name": chuẩn hóa về CÙNG 1 khóa cho mọi biến thể gacha của 1 thực thể.
+    // (bỏ tag + bỏ ngoặc + bỏ phần sau "/" + bỏ ký tự đặc biệt) → "Nhân vật: Han Isratte (Han Seojin / Loki)"
+    // và "Character: Han Isratte" và "Han Isratte / Han Seojin" đều về "han isratte".
+    const canonName = (c?: string) => String(c || '').toLowerCase()
+      .replace(TAG_PREFIX, '')
+      .replace(/\(.*?\)/g, ' ')
+      .replace(/\s*\/.*$/, '')
+      .replace(/[^a-z0-9à-ỹ ]/gi, ' ')
+      .replace(/\s+/g, ' ').trim();
+    // Singleton tổng quan: toàn lorebook chỉ 1 Thế Giới Quan + 1 META (tên đặt kiểu gì cũng bắt).
     const isWorldviewTitle = (c?: string) => /thế giới quan|worldview|tổng cương/i.test(c || '');
     const isMetaTitle = (c?: string) => /meta[_\s]?setup|thiết lập\s*meta|user\s*setup|<user>|\[meta\]|vai trò master/i.test(c || '');
-    const committedNames = new Set<string>();
+    // Tự suy từ khóa từ tiêu đề khi entry thiếu key: tên chính (trước ngoặc) + alias (trong ngoặc).
+    const deriveKeys = (comment?: string): string[] => {
+      const raw = String(comment || '').replace(TAG_PREFIX, '').trim();
+      const primary = raw.replace(/\(.*$/, '').replace(/\s*\/.*$/, '').trim();
+      const aliasInside = (raw.match(/\((.*?)\)/)?.[1] || '').split(/[\/,;]/).map(s => s.trim());
+      return Array.from(new Set([primary, ...aliasInside].filter(k => k && k.length > 1)));
+    };
+
+    const committedCanon = new Set<string>();
     let hasWorldview = false, hasMeta = false;
     for (const e of currentLorebookState.entries) {
-      const nm = normName(e.comment); if (nm) committedNames.add(nm);
+      const cn = canonName(e.comment); if (cn) committedCanon.add(cn);
       if (isWorldviewTitle(e.comment)) hasWorldview = true;
       if (isMetaTitle(e.comment)) hasMeta = true;
     }
 
-    // Commit ĐỒNG BỘ (JS đơn luồng ⇒ không cần Lock): dedup + áp dụng NGAY mảnh vừa xong
-    // → entry hiện dần để quan sát. Trả số mục mới thực sự thêm.
+    // Commit ĐỒNG BỘ (JS đơn luồng ⇒ không cần Lock): dedup theo thực thể + áp dụng NGAY.
     const commitActions = (acts: WorldbuildingAction[]): number => {
       const fresh: WorldbuildingAction[] = [];
       for (const act of acts) {
-        const comment = act.data?.comment;
-        const nm = normName(comment);
-        // Singleton: chỉ giữ 1 Thế Giới Quan + 1 META cho TOÀN lorebook (ưu tiên bản đầu).
+        if (!act.data) continue;
+        const comment = act.data.comment;
+        // 1) Singleton tổng quan: chỉ giữ 1 Thế Giới Quan + 1 META.
         if (isWorldviewTitle(comment)) {
           if (hasWorldview) continue;
           hasWorldview = true;
         } else if (isMetaTitle(comment)) {
           if (hasMeta) continue;
           hasMeta = true;
+        } else {
+          // 2) Dedup theo CANONICAL name → gộp mọi biến thể "gacha" của cùng thực thể.
+          const cn = canonName(comment);
+          if (cn) {
+            if (committedCanon.has(cn)) continue;
+            committedCanon.add(cn);
+          }
         }
-        if (nm) {
-          if (committedNames.has(nm)) continue; // trùng tên → bỏ
-          committedNames.add(nm);
+        // 3) Tự điền từ khóa nếu thiếu (rất nhiều entry bị "Chưa có từ khóa").
+        if (!act.data.key || act.data.key.length === 0) {
+          const k = deriveKeys(comment);
+          if (k.length > 0) act.data.key = k;
         }
         currentLorebookState.entries.push(act.data as any);
         fresh.push(act);
