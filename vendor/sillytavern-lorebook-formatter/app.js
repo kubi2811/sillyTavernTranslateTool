@@ -947,6 +947,26 @@ function formatBytes(bytes) {
 }
 
 // Render entries to table
+// THROTTLE render: dựng lại TOÀN BỘ bảng (vd 1791 dòng) sau MỖI batch/fix sẽ đơ trình duyệt.
+// Gộp các yêu cầu render dồn dập → tối đa ~1 lần/700ms. Có flushRender() để vẽ ngay khi xong.
+let _renderTimer = null, _renderPending = false;
+function scheduleRender() {
+  // List càng lớn càng giãn render (dựng cả bảng tốn O(n)): >1200 mục → 2s, >500 → 1.2s.
+  const n = activeFile?.entries?.length || 0;
+  const delay = n > 1200 ? 2000 : (n > 500 ? 1200 : 600);
+  if (_renderTimer) { _renderPending = true; return; }
+  renderEntries(); updateDistribution();
+  _renderTimer = setTimeout(() => {
+    _renderTimer = null;
+    if (_renderPending) { _renderPending = false; scheduleRender(); }
+  }, delay);
+}
+function flushRender() {
+  if (_renderTimer) { clearTimeout(_renderTimer); _renderTimer = null; }
+  _renderPending = false;
+  renderEntries(); updateDistribution();
+}
+
 function renderEntries() {
   entriesTableBody.innerHTML = '';
   let filtered = activeFile.entries;
@@ -1068,6 +1088,7 @@ function renderEntries() {
     btn.addEventListener('click', (e) => {
       const uid = e.target.getAttribute('data-uid');
       fixEntryConfig(uid);
+      flushRender(); // sửa lẻ 1 mục → vẽ lại ngay
     });
   });
 
@@ -1337,8 +1358,7 @@ btnRunAi.addEventListener('click', async () => {
       applyResults(results);
       processed += batch.length;
       batchesDone++;
-      renderEntries();
-      updateDistribution();
+      scheduleRender(); // THROTTLE: không dựng lại cả bảng mỗi batch → hết đơ
       log(`✓ ${tag}: xong batch ${batch.length} mục (${processed}/${total} • ${pct()}%).`);
       return results;
     } finally {
@@ -1372,10 +1392,12 @@ btnRunAi.addEventListener('click', async () => {
       await runRateLimited(batches.map(b => makeTask(b, model, model)), { rpm: pRpm });
     }
 
+    flushRender(); // vẽ bảng đầy đủ 1 lần cuối cùng
     log(`Phân loại AI hoàn tất cho ${processed}/${total} mục! (${fmtT(Math.floor((Date.now() - t0) / 1000))})`, 'success');
     updateProgress(100, `Hoàn tất • ${total} mục • ${fmtT(Math.floor((Date.now() - t0) / 1000))}`);
     btnDownload.disabled = false;
   } catch (err) {
+    flushRender();
     log(`AI Scan Error: ${err.message}`, 'danger');
     alert(`AI analysis failed: ${err.message}`);
     updateProgress(pct(), `Lỗi — đã xử lý ${processed}/${total}`);
@@ -1538,8 +1560,7 @@ function fixEntryConfig(uid) {
   entry.currentConfig.role = orig.extensions?.role !== undefined ? orig.extensions.role : (orig.role !== undefined ? orig.role : null);
 
   entry.status = 'correct';
-  
-  renderEntries();
+  // KHÔNG render ở đây — caller tự render 1 lần (tránh dựng lại cả bảng ×100 khi Auto-Fix All → đơ).
 }
 
 // Auto Fix All Mismatched Entries
@@ -1552,7 +1573,7 @@ btnFixAll.addEventListener('click', () => {
     fixEntryConfig(entry.uid);
   });
   log(`All misconfigured entries have been aligned to the rules.`, 'success');
-  renderEntries();
+  flushRender(); // vẽ 1 lần duy nhất sau khi sửa hết
 });
 
 /* MODAL ENTRY EDITOR & REVIEW */
