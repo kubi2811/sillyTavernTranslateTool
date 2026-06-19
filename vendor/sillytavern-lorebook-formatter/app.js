@@ -1288,6 +1288,22 @@ function evaluateEntryStatus(entry) {
   entry.status = matches ? 'correct' : 'mismatched';
 }
 
+// Vớt mọi mục chưa có nhóm (AI bỏ sót / batch lỗi) bằng heuristic cục bộ (luôn trả nhóm 1..5).
+// Đảm bảo KHÔNG mục nào kẹt "Unclassified" → "Fix All" có thể sửa được tất cả. Trả về số mục đã vớt.
+function fillUnclassifiedWithHeuristic() {
+  let n = 0;
+  activeFile.entries.forEach(entry => {
+    if (!entry.assignedGroup) {
+      const r = runLocalHeuristicOnEntry(entry);
+      entry.assignedGroup = r.group;
+      entry.aiExplanation = `(Heuristic dự phòng) ${r.explanation}`;
+      evaluateEntryStatus(entry);
+      n++;
+    }
+  });
+  return n;
+}
+
 /* AI SCANNERS (GEMINI / OPENAI) */
 btnRunAi.addEventListener('click', async () => {
   const apiKey = apiKeyInput.value.trim();
@@ -1327,12 +1343,15 @@ btnRunAi.addEventListener('click', async () => {
       const key = String(res.uid);
       if (assignedUids.has(key)) return; // đã gán rồi → bỏ (chống trùng phòng hờ)
       const entry = entries.find(e => e.uid.toString() === key);
-      if (entry) {
-        assignedUids.add(key);
-        entry.assignedGroup = res.group;
-        entry.aiExplanation = res.explanation;
-        evaluateEntryStatus(entry);
-      }
+      if (!entry) return;
+      // VALIDATE group: chỉ chấp nhận số nguyên 1..5. Group lỗi ("Group 1", 0, 6, null...)
+      // → KHÔNG gán (không add assignedUids) để mục này được vớt ở pass dự phòng bên dưới.
+      const grp = parseInt(res.group, 10);
+      if (!Number.isInteger(grp) || grp < 1 || grp > 5) return;
+      assignedUids.add(key);
+      entry.assignedGroup = grp;
+      entry.aiExplanation = res.explanation || '';
+      evaluateEntryStatus(entry);
     });
   };
 
@@ -1392,11 +1411,27 @@ btnRunAi.addEventListener('click', async () => {
       await runRateLimited(batches.map(b => makeTask(b, model, model)), { rpm: pRpm });
     }
 
+    // ── PASS 2 (AI retry): gom các mục còn sót do batch lỗi/timeout/AI trả thiếu, chạy lại 1 lượt.
+    let missing = entries.filter(e => !e.assignedGroup);
+    if (missing.length > 0) {
+      log(`🔁 ${missing.length} mục chưa phân loại (batch lỗi/timeout/AI trả thiếu) — thử lại bằng AI...`, 'warning');
+      const retryBatches = [];
+      for (let i = 0; i < missing.length; i += batchSize) retryBatches.push(missing.slice(i, i + batchSize));
+      await runRateLimited(retryBatches.map(b => makeTask(b, model, 'Retry')), { rpm: pRpm });
+    }
+
+    // ── PASS 3 (heuristic dự phòng): vớt nốt mục AI vẫn bỏ sót → KHÔNG còn mục nào "Unclassified".
+    const fb = fillUnclassifiedWithHeuristic();
+    if (fb > 0) log(`⚠ ${fb} mục AI vẫn bỏ sót → đã phân loại bằng heuristic dự phòng. Giờ mọi mục đều có nhóm và đều Fix được.`, 'warning');
+
     flushRender(); // vẽ bảng đầy đủ 1 lần cuối cùng
     log(`Phân loại AI hoàn tất cho ${processed}/${total} mục! (${fmtT(Math.floor((Date.now() - t0) / 1000))})`, 'success');
     updateProgress(100, `Hoàn tất • ${total} mục • ${fmtT(Math.floor((Date.now() - t0) / 1000))}`);
     btnDownload.disabled = false;
   } catch (err) {
+    // Dù scan lỗi giữa chừng, vẫn vớt các mục chưa phân loại để không còn mục nào kẹt "Unclassified".
+    const fb = fillUnclassifiedWithHeuristic();
+    if (fb > 0) log(`⚠ Scan lỗi — đã vớt ${fb} mục bằng heuristic dự phòng để vẫn Fix được.`, 'warning');
     flushRender();
     log(`AI Scan Error: ${err.message}`, 'danger');
     alert(`AI analysis failed: ${err.message}`);
