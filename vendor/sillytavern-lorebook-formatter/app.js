@@ -1337,12 +1337,13 @@ btnRunAi.addEventListener('click', async () => {
   // (mỗi entry nằm đúng 1 batch; không tạo entry mới nên KHÔNG thể trùng data).
   let processed = 0;
   const assignedUids = new Set(); // chống gán đè nếu model lỡ trả uid của batch khác
+  const uidMap = new Map(entries.map(e => [e.uid.toString(), e])); // tra cứu O(1) thay vì .find O(n)
   const applyResults = (results) => {
     (Array.isArray(results) ? results : []).forEach(res => {
       if (!res || res.uid === undefined) return;
       const key = String(res.uid);
       if (assignedUids.has(key)) return; // đã gán rồi → bỏ (chống trùng phòng hờ)
-      const entry = entries.find(e => e.uid.toString() === key);
+      const entry = uidMap.get(key);
       if (!entry) return;
       // VALIDATE group: chỉ chấp nhận số nguyên 1..5. Group lỗi ("Group 1", 0, 6, null...)
       // → KHÔNG gán (không add assignedUids) để mục này được vớt ở pass dự phòng bên dưới.
