@@ -193,7 +193,7 @@ ${master}`;
         if (success) {
           setToast({ message: "Đồng bộ hóa thành công! AI đã nhận diện toàn bộ các prompt.", type: 'success' });
         } else {
-          setToast({ message: "Lưu thành công, nhưng phản hồi từ AI không đúng định dạng.", type: 'success' });
+          setToast({ message: "Lưu thành công. Kết nối API OK nhưng AI trả về nội dung trống — kiểm tra lại model/key.", type: 'info' });
         }
       } else {
         setToast({ message: "Lưu prompt thành công (Chưa cấu hình API Key để đồng bộ AI).", type: 'success' });

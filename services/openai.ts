@@ -1606,7 +1606,8 @@ ${prompts.map((p, idx) => `Prompt #${idx+1} [${p.title}]: ${p.content}`).join('\
     ],
     temperature: 0.1,
     max_tokens: 200,
-    response_format: { type: "json_object" }
+    // Không dùng response_format: json_object vì nhiều proxy/model không hỗ trợ
+    // và sẽ trả về content=null, gây false negative cho connection test.
   };
 
   try {
@@ -1624,8 +1625,12 @@ ${prompts.map((p, idx) => `Prompt #${idx+1} [${p.title}]: ${p.content}`).join('\
     }
 
     const data = await response.json();
-    const rawContent = data.choices?.[0]?.message?.content || "";
-    return rawContent.includes("success") || rawContent.length > 0;
+    // Hỗ trợ cả OpenAI format (choices[].message.content) lẫn Gemini direct (candidates[].content.parts[])
+    const rawContent =
+      data.choices?.[0]?.message?.content ||
+      data.candidates?.[0]?.content?.parts?.[0]?.text ||
+      "";
+    return rawContent.length > 0;
   } catch (error) {
     console.error("Lỗi test API call ẩn:", error);
     throw error;
